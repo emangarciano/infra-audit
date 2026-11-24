@@ -4,20 +4,20 @@ Development checks ran on 24 November 2026 with Node.js 24, PostgreSQL 16, and c
 
 | Criterion | Development evidence | Office evidence pending |
 | --- | --- | --- |
-| AC-01 | Intake assigned a transaction and an auditor created a self-assigned transaction. Both started Under Audit. Duplicate creation required a deliberate confirmation. | |
+| AC-01 | Intake-assigned transactions appeared as Pending and could be found with the status filter. Auditor and supervisor registrations were self-assigned and started Under Audit. Duplicate creation required a deliberate confirmation. | |
 | AC-02 | A second auditor opened another auditor's transaction. Intake received movement metadata and was denied checklist and slip access. | |
 | AC-03 | Checked, Unchecked, N/A, and custom items worked. The suspension snapshot contained only unchecked applicable items and their remarks. The BAC checklist now loads 63 requirements from the supplied CSV and displays Complied, Not complied, and N/A. | Validate the supplied BAC list and the remaining configured requirements against PACCO's approved checklists. |
 | AC-04 | Reprinting returned the same saved HTML after checklist changes and a layout change. | Compare print wording and layout with the PACCO specimen before official pilot use. |
 | AC-05 | Resubmission preserved the checklist, explicit resumption returned the transaction to Under Audit, and repeated suspensions retained both slips. | |
 | AC-06 | The logged-in supervisor was recorded as certifier. Unchecked items required justification. The manual amount was preserved with figures and words, and the workflow ended at Audited. | |
-| AC-07 | Backdated action and recording times were preserved. Two simultaneous corrections produced one save and one revision conflict. Earlier certification and slips survived correction and duplicate voiding. | |
+| AC-07 | Start Audit preserved the assignee and registration event, recorded both dates and the actor, and enforced role, status and revision checks. Legacy registrations retained their recorded status. Backdated action and recording times were preserved. Two simultaneous corrections produced one save and one revision conflict. Earlier certification and slips survived correction and duplicate voiding. | |
 | AC-08 | Four-digit PIN validation, five-attempt lockout, 15-minute lock duration, 60-minute inactivity expiry, deactivation, and role permissions passed. | |
 | AC-09 | Two manually invoked backups succeeded on a separate test filesystem. Full restore into an isolated PostgreSQL instance created a safety dump and verified accounts, projects, transactions, checklists, slips, and audit history. Both timer expressions were checked in Asia/Manila. | Observe the two scheduled runs and confirm recovery on the designated office setup. |
 | AC-10 | The fixture workflow produced a traceable status and history. | Run the real parallel office pilot with Excel as the official record. |
 
 ## Reproduce the API checks
 
-Set `PACCO_TEST_DATABASE_URL` and run `npm test`. The [integration suite](../test/mvp.test.js) reported 10 passes and zero failures against the disposable PostgreSQL instance. The suite creates its own schema for the run.
+Set `PACCO_TEST_DATABASE_URL` and run `npm test`. The [integration suite](../test/mvp.test.js) reported 15 passes and zero failures against the disposable PostgreSQL instance. The suite creates its own schema for the run.
 
 ## Browser and recovery checks
 

@@ -217,7 +217,8 @@ export async function createTransaction(client, user, body, references) {
       INSERT INTO checklist_items (transaction_id, label) SELECT $1, label FROM unnest($2::text[]) AS label
     `, [record.id, labels]);
   }
-  await event(client, user, record, 'register', { actualOn: receivedOn, next: 'Under Audit' });
+  const initialStatus = user.role === 'intake' ? 'Pending' : 'Under Audit';
+  await event(client, user, record, 'register', { actualOn: receivedOn, next: initialStatus });
   return record;
 }
 
@@ -359,6 +360,7 @@ export async function saveChecklist(client, user, transactionId, body) {
 }
 
 const transitions = {
+  start: { from: 'Pending', to: 'Under Audit' },
   suspend: { from: 'Under Audit', to: 'Suspended' },
   resubmit: { from: 'Suspended', to: 'Resubmitted' },
   resume: { from: 'Resubmitted', to: 'Under Audit' },

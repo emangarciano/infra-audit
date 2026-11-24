@@ -7,12 +7,12 @@ export const types = {
   final: 'Final billing',
   retention: 'Retention claim',
 };
-export const statusNames = ['Under Audit', 'Suspended', 'Resubmitted', 'Audited'];
+export const statusNames = ['Pending', 'Under Audit', 'Suspended', 'Resubmitted', 'Audited'];
 export const checklistStates = ['Unchecked', 'Checked', 'N/A'];
 export const roles = ['intake', 'auditor', 'supervisor', 'system-admin'];
 export const auditRoles = ['auditor', 'supervisor'];
 export const registerRoles = ['intake', ...auditRoles];
-export const movementKinds = ['register', 'suspend', 'resubmit', 'resume', 'certify', 'void'];
+export const movementKinds = ['register', 'start', 'suspend', 'resubmit', 'resume', 'certify', 'void'];
 
 const manilaDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Manila' });
 export const today = () => manilaDate.format(new Date());

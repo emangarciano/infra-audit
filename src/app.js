@@ -104,7 +104,7 @@ export function createApp(database, references, { origin } = {}) {
   app.patch('/api/transactions/:id/checklist', handle(auditRoles, (client, user, req) =>
     saveChecklist(client, user, id(req.params.id), payload(req))));
   app.post('/api/transactions/:id/actions/:kind', handle(registerRoles, (client, user, req) => {
-    const actions = user.role === 'intake' ? ['resubmit'] : ['suspend', 'resubmit', 'resume', 'certify', 'void'];
+    const actions = user.role === 'intake' ? ['resubmit'] : ['start', 'suspend', 'resubmit', 'resume', 'certify', 'void'];
     if (!actions.includes(req.params.kind)) throw new RequestError(403, 'Your role cannot record this action.');
     return actOnTransaction(client, user, id(req.params.id), req.params.kind, payload(req), references);
   }));

@@ -11,7 +11,7 @@ const roleNames = {
   intake: 'Administrative staff', auditor: 'Auditor', supervisor: 'Supervisor', 'system-admin': 'System administrator',
 };
 const actionLabels = {
-  register: 'Registered', checklist: 'Checklist updated', correct: 'Transaction corrected',
+  register: 'Registered', start: 'Audit started', checklist: 'Checklist updated', correct: 'Transaction corrected',
   project_correction: 'Project corrected', suspend: 'Suspended', resubmit: 'Resubmitted',
   resume: 'Audit resumed', certify: 'Marked Audited', void: 'Duplicate voided',
 };
@@ -332,7 +332,7 @@ function displayNewTransaction(selectedProject) {
   const precondition = projectOptions.length
     ? '<p>An active auditor account is required for assignment.</p>'
     : '<p><a href="#new-project">Create a project</a> to register its first transaction.</p>';
-  mount(`<a class="back" href="#queue">Transaction queue</a>${heading('New transaction', '', 'New transactions start Under Audit.')}
+  mount(`<a class="back" href="#queue">Transaction queue</a>${heading('New transaction', '', user.role === 'intake' ? 'New transactions start Pending.' : 'New transactions start Under Audit.')}
     ${canRegister ? `<form class="panel stack"><div class="grid">
       ${select('Project', 'project_id', [['', 'Select a project'], ...projectOptions], selectedProject, 'required')}
       ${select('Type', 'type', [['', 'Select a type'], ...Object.entries(lookups.types)], '', 'required')}
@@ -473,6 +473,7 @@ function transactionActions(record) {
   const actions = [];
   if (record.status === 'Suspended') actions.push(['resubmit', 'Record resubmission']);
   if (isAuditRole()) {
+    if (record.status === 'Pending') actions.push(['start', 'Start Audit']);
     if (record.status === 'Under Audit') actions.push(['suspend', 'Suspend'], ['certify', 'Mark Audited']);
     if (record.status === 'Resubmitted') actions.push(['resume', 'Resume Audit']);
     actions.push(['void', 'Void duplicate']);

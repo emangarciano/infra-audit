@@ -122,6 +122,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
   let project;
   let record;
   let selfAssigned;
+  let duplicateRegistration;
   let firstSlip;
   let firstSlipPath;
   const txPath = () => `/transactions/${record.id}`;
@@ -220,11 +221,14 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
       project_id: project.id, type: 'progress', reference: 'Fixture progress 01',
       assigned_auditor_id: credentials['auditor-a'], received_on: '2026-11-09',
     };
+    for (const assigned_auditor_id of [undefined, credentials.intake]) {
+      assert.equal((await request('/transactions', post({ ...body, assigned_auditor_id }, intake))).status, 400);
+    }
     record = await success('/transactions', post(body, intake), 201);
     const duplicate = await request('/transactions', post(body, intake));
     assert.equal(duplicate.status, 409);
     assert.equal(duplicate.data.code, 'duplicate');
-    await success('/transactions', post({ ...body, allow_duplicate: true }, intake), 201);
+    duplicateRegistration = await success('/transactions', post({ ...body, allow_duplicate: true }, intake), 201);
     selfAssigned = await success('/transactions', post({
       ...body, project_id: auditProject.id, reference: 'Fixture auditor 02', type: 'bac',
       assigned_auditor_id: credentials['auditor-a'],
@@ -233,7 +237,18 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     const queue = await success('/transactions', { cookie: intake });
     assert.equal(queue.find((item) => item.id === record.id).assigned_auditor_id, credentials['auditor-a']);
     assert.equal(queue.find((item) => item.id === selfAssigned.id).assigned_auditor_id, credentials['auditor-b']);
-    assert.ok(queue.every((item) => item.status === 'Under Audit'));
+    const pending = await success('/transactions?status=Pending', { cookie: intake });
+    assert.ok(pending.length >= 2);
+    assert.ok(pending.every((item) => item.status === 'Pending'));
+    assert.ok(pending.some((item) => item.id === record.id));
+    assert.equal(queue.find((item) => item.id === selfAssigned.id).status, 'Under Audit');
+    const supervisorCreated = await success('/transactions', post({
+      ...body, reference: 'Supervisor registration',
+    }, supervisor), 201);
+    const supervisorRecord = await success(`/transactions/${supervisorCreated.id}`, { cookie: intake });
+    assert.equal(supervisorRecord.status, 'Under Audit');
+    assert.equal(supervisorRecord.assigned_auditor_id, credentials.supervisor);
+    assert.equal(supervisorRecord.history[0].new_status, 'Under Audit');
     const byProjectReference = await success('/transactions?q=pw-101', { cookie: intake });
     assert.deepEqual([...new Set(byProjectReference.map((item) => item.project_id))], [project.id]);
     assert.equal(byProjectReference[0].project_reference, fields.reference);
@@ -244,6 +259,40 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal(bac.checklist.at(-1).label, 'Construction Safety and Health Program approved by DOLE');
     assert.ok(bac.checklist.some((item) => item.label === 'Valid Joint Venture Agreement, if applicable'));
     assert.ok(bac.checklist.every((item) => item.state === 'Unchecked' && !item.custom));
+  });
+
+  await t.test('AC-07 Start Audit records a Pending movement with revision and role checks', async () => {
+    const path = `/transactions/${record.id}`;
+    const before = await success(path, { cookie: intake });
+    assert.equal(before.status, 'Pending');
+    assert.equal(before.history[0].new_status, 'Pending');
+    const action = { revision: before.revision, actual_on: '2026-11-10' };
+    assert.equal((await request(`${path}/actions/start`, post(action, intake))).status, 403);
+    for (const kind of ['suspend', 'certify', 'resume']) {
+      assert.equal((await request(`${path}/actions/${kind}`, post(action, otherAuditor))).status, 409);
+    }
+    await success(`${path}/actions/start`, post(action, otherAuditor));
+    const after = await success(path, { cookie: intake });
+    assert.equal(after.status, 'Under Audit');
+    assert.equal(after.latest_action_on, action.actual_on);
+    assert.equal(after.assigned_auditor_id, before.assigned_auditor_id);
+    assert.deepEqual(after.history[0], before.history[0]);
+    const movement = after.history[1];
+    assert.equal(movement.kind, 'start');
+    assert.equal(movement.actor_id, credentials['auditor-b']);
+    assert.equal(movement.previous_status, 'Pending');
+    assert.equal(movement.new_status, 'Under Audit');
+    assert.equal(movement.actual_on, action.actual_on);
+    assert.ok(movement.recorded_at);
+    const stale = await request(`${path}/actions/start`, post(action, supervisor));
+    assert.equal(stale.status, 409);
+    assert.equal(stale.data.code, 'revision');
+    assert.equal((await request(`${path}/actions/start`, post({ revision: after.revision }, supervisor))).status, 409);
+
+    const duplicatePath = `/transactions/${duplicateRegistration.id}`;
+    const detail = await success(duplicatePath, { cookie: supervisor });
+    const started = await success(`${duplicatePath}/actions/start`, post({ revision: detail.revision }, supervisor));
+    assert.equal(started.record.history.at(-1).actor_id, credentials.supervisor);
   });
 
   await t.test('Existing projects preserve their IDs and labels across migration', async () => {
@@ -301,6 +350,8 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
         assert.equal(existingTransaction.obligation_request_reference, null);
         const matches = await (await send('/projects?q=old%20bri', undefined, cookie)).json();
         assert.deepEqual(matches, [{ id, title: 'Old bridge', reference: null, contractor: null }]);
+        assert.equal(existingTransaction.status, 'Under Audit');
+        assert.equal(existingTransaction.history[0].new_status, 'Under Audit');
         assert.equal(existingTransaction.history[0].actor_name, 'Legacy Auditor');
         const fields = { title: 'old bridge', reference: 'PW-OLD', contractor: 'Builder', contract_amount: '100' };
         const warning = await send('/projects', fields, cookie);
@@ -403,7 +454,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
       new_label: 'Development fixture <custom requirement>',
       actual_on: '2026-11-10',
     }, auditor));
-    assert.equal(record.latest_action_on, '2026-11-09');
+    assert.equal(record.latest_action_on, '2026-11-10');
     const custom = record.checklist.find((item) => item.custom);
     assert.equal(custom.state, 'Unchecked');
     const event = await act('suspend', otherAuditor, {

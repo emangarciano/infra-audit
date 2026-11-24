@@ -59,10 +59,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     project_id integer NOT NULL REFERENCES projects,
     transaction_id integer REFERENCES transactions,
-    kind text NOT NULL CHECK (kind IN (
-        'project_correction', 'register', 'checklist', 'correct',
-        'suspend', 'resubmit', 'resume', 'certify', 'void'
-    )),
+    kind text NOT NULL,
     actor_id integer NOT NULL REFERENCES accounts,
     actor_name text NOT NULL,
     actual_on date NOT NULL,
@@ -71,6 +68,13 @@ CREATE TABLE IF NOT EXISTS audit_events (
     new_status text,
     details jsonb NOT NULL DEFAULT '{}'::jsonb
 );
+
+ALTER TABLE audit_events
+    DROP CONSTRAINT IF EXISTS audit_events_kind_check,
+    ADD CONSTRAINT audit_events_kind_check CHECK (kind IN (
+        'project_correction', 'register', 'checklist', 'correct',
+        'start', 'suspend', 'resubmit', 'resume', 'certify', 'void'
+    ));
 
 CREATE INDEX IF NOT EXISTS transaction_project ON transactions (project_id);
 CREATE INDEX IF NOT EXISTS transaction_assignment ON transactions (assigned_auditor_id);
