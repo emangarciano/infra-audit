@@ -162,6 +162,42 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.ok(bac.checklist.every((item) => item.state === 'Unchecked' && !item.custom));
   });
 
+  await t.test('BAC document fields are scoped, persisted and recorded in history', async () => {
+    const path = `/transactions/${selfAssigned.id}`;
+    const bac = await success(path, { cookie: otherAuditor });
+    const values = {
+      'Notice of Award': { issue_date: '2026-11-01', received_date: '2026-11-02', amount: '1234.50' },
+      'Performance Security': {
+        effectivity_date: '2026-11-02', surety_name: 'Test Surety', reference: 'PS-01',
+        includes_after_completion: false,
+      },
+      'Duly notarized contract': { issue_date: '2026-11-03', amount: '1234.50', duration: '90 calendar days' },
+      'Notice to Proceed': { issue_date: '2026-11-04', received_date: '2026-11-05' },
+      "Contractor's All Risk Insurance (CARI)": { effectivity_date: '2026-11-05', surety_name: 'Test Insurer' },
+    };
+    const documents = bac.checklist.filter((item) => item.field_definitions.length);
+    assert.equal(documents.length, 5);
+    const items = documents.map((item) => {
+      assert.deepEqual(item.field_definitions.map(({ key }) => key), Object.keys(values[item.label]));
+      return { id: item.id, state: item.state, document_fields: values[item.label] };
+    });
+    const saved = await success(`${path}/checklist`, patch({ revision: bac.revision, items }, otherAuditor));
+    const reloaded = await success(path, { cookie: otherAuditor });
+    for (const item of reloaded.checklist.filter((item) => item.field_definitions.length)) {
+      assert.deepEqual(item.document_fields, values[item.label]);
+    }
+    assert.equal(saved.history.at(-1).details.changes.length, 5);
+    assert.equal(saved.history.at(-1).details.changes.find(({ after }) =>
+      after.label === 'Performance Security').after.document_fields.includes_after_completion, false);
+    const invalid = await request(`${path}/checklist`, patch({
+      revision: saved.revision,
+      items: [{ ...items[0], document_fields: { surety_name: 'Wrong document' } }],
+    }, otherAuditor));
+    assert.equal(invalid.status, 400);
+    const unchanged = await success(`${path}/checklist`, patch({ revision: saved.revision, items }, otherAuditor));
+    assert.equal(unchanged.revision, saved.revision);
+  });
+
   await t.test('AC-02 shared search, restricted intake history, and audited project corrections', async () => {
     const queue = await success('/transactions?q=Fixture%20progress&status=Under%20Audit&type=progress', { cookie: otherAuditor });
     assert.ok(queue.some((item) => item.id === record.id));

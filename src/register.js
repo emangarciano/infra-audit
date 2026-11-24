@@ -1,3 +1,4 @@
+import { bacFields, updateDocumentFields } from './bac-fields.js';
 import { RequestError } from './database.js';
 import {
   amount, amountForCopy, auditRoles, checklistStates, date, id, movementKinds,
@@ -223,7 +224,7 @@ async function findTransaction(client, transactionId) {
 
 async function checklist(client, transactionId) {
   const result = await client.query(`
-    SELECT id, label, state, remarks, custom FROM checklist_items WHERE transaction_id = $1 ORDER BY id
+    SELECT id, label, state, remarks, custom, document_fields FROM checklist_items WHERE transaction_id = $1 ORDER BY id
   `, [transactionId]);
   return result.rows;
 }
@@ -240,7 +241,10 @@ export async function readTransaction(client, user, transactionId) {
   if (!audit) {
     return { ...summary(record), revision: record.revision, history };
   }
-  return { ...record, history, checklist: await checklist(client, transactionId) };
+  const items = await checklist(client, transactionId);
+  return { ...record, history, checklist: items.map((item) => ({
+    ...item, field_definitions: bacFields(record.type, item),
+  })) };
 }
 
 async function openForChange(client, transactionId, revision) {
@@ -288,9 +292,12 @@ export async function saveChecklist(client, user, transactionId, body) {
     stored.delete(item.id);
     const state = oneOf(entry.state, checklistStates, 'Checklist state');
     const remarks = text(entry.remarks, 'Checklist remarks');
-    if (item.state !== state || item.remarks !== remarks) {
-      await client.query('UPDATE checklist_items SET state = $2, remarks = $3 WHERE id = $1', [item.id, state, remarks]);
-      changes.push({ before: item, after: { ...item, state, remarks } });
+    const documentFields = updateDocumentFields(item.document_fields, entry.document_fields, bacFields(record.type, item));
+    if (item.state !== state || item.remarks !== remarks ||
+        JSON.stringify(item.document_fields) !== JSON.stringify(documentFields)) {
+      await client.query('UPDATE checklist_items SET state = $2, remarks = $3, document_fields = $4 WHERE id = $1',
+        [item.id, state, remarks, documentFields]);
+      changes.push({ before: item, after: { ...item, state, remarks, document_fields: documentFields } });
     }
   }
   const label = text(body.new_label, 'Requirement label', 240);

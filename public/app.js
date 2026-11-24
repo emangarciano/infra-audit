@@ -290,9 +290,27 @@ function checklistStateLabel(state, type) {
   return type === 'bac' && Object.hasOwn(bacLabels, state) ? bacLabels[state] : state;
 }
 
+const booleanOptions = [['', 'Not recorded'], ['true', 'Yes'], ['false', 'No']];
+
+function documentFieldValue(value) {
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return value ?? '—';
+}
+
+function documentFields(item, editable) {
+  return item.field_definitions.map(({ key, label, kind }) => {
+    const value = item.document_fields[key];
+    if (!editable) return `<div><strong>${escape(label)}</strong> ${escape(documentFieldValue(value))}</div>`;
+    const name = `document_${item.id}_${key}`;
+    if (kind === 'boolean') return select(label, name, booleanOptions, value ?? '');
+    const attributes = kind === 'amount' ? 'inputmode="decimal" maxlength="23"' : 'maxlength="240"';
+    return field(label, name, value ?? '', attributes, kind === 'date' ? 'date' : 'text');
+  }).join('');
+}
+
 function checklistRow(item, editable, states) {
   const name = escape(item.label);
-  return `<tr data-checklist-id="${item.id}"><td>${name}${item.custom ? ' <span class="muted">(custom)</span>' : ''}</td>
+  return `<tr data-checklist-id="${item.id}"><td>${name}${item.custom ? ' <span class="muted">(custom)</span>' : ''}${documentFields(item, editable)}</td>
     <td>${editable
       ? `<select name="state_${item.id}" aria-label="State for ${name}">${options(states, item.state)}</select>`
       : escape(states.find(([value]) => value === item.state)?.[1] ?? item.state)}</td>
@@ -326,7 +344,12 @@ function changeDetails(changes, type) {
   const stateLabel = (item) => checklistStateLabel(item.state, type);
   const lines = Array.isArray(changes)
     ? changes.map(({ before, after }) => before
-      ? `${after.label}. State: ${stateLabel(before)} → ${stateLabel(after)}. Remarks: ${before.remarks || '—'} → ${after.remarks || '—'}.`
+      ? [
+        `${after.label}. State: ${stateLabel(before)} → ${stateLabel(after)}. Remarks: ${before.remarks || '—'} → ${after.remarks || '—'}.`,
+        ...Object.keys({ ...before.document_fields, ...after.document_fields })
+          .filter((key) => before.document_fields?.[key] !== after.document_fields?.[key])
+          .map((key) => `${key.replaceAll('_', ' ')}: ${documentFieldValue(before.document_fields?.[key])} → ${documentFieldValue(after.document_fields?.[key])}.`),
+      ].join(' ')
       : `Added requirement ${after.label} (${stateLabel(after)}).`)
     : Object.entries(changes).map(([field, { before, after }]) =>
       `${fieldLabels[field] ?? field}: ${before ?? '—'} → ${after ?? '—'}`);
@@ -408,7 +431,13 @@ function displayTransaction(record) {
     checklistForm.addEventListener('input', () => { checklistDirty = true; });
     detailsForm.addEventListener('input', () => { detailsDirty = true; });
     submit(checklistForm, async (body) => {
-      const items = record.checklist.map(({ id }) => ({ id, state: body[`state_${id}`], remarks: body[`remarks_${id}`] }));
+      const items = record.checklist.map(({ id, field_definitions }) => ({
+        id, state: body[`state_${id}`], remarks: body[`remarks_${id}`],
+        document_fields: Object.fromEntries(field_definitions.map(({ key, kind }) => {
+          const value = body[`document_${id}_${key}`];
+          return [key, value === '' ? null : kind === 'boolean' ? value === 'true' : value];
+        })),
+      }));
       const updated = await api(`/transactions/${record.id}/checklist`, 'PATCH',
         { revision: record.revision, items, new_label: body.new_label, actual_on: body.actual_on });
       refreshTransaction(updated, detailsDirty ? detailsForm : null);
