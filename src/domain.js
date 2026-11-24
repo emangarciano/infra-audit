@@ -1,4 +1,5 @@
 import { RequestError } from './database.js';
+import { parsePesoAmount } from '../public/peso-amount.js';
 
 export const types = {
   bac: 'BAC documentation',
@@ -61,13 +62,12 @@ export function oneOf(value, choices, label) {
 export function amount(value, label) {
   const input = text(value, label, 23);
   if (input == null) return null;
-  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(input)) {
+  const parsed = parsePesoAmount(input);
+  if (parsed.error === 'format') {
     throw new RequestError(400, `Enter ${label.toLowerCase()} in pesos with at most two decimal places.`);
   }
-  const [whole, fraction = ''] = input.replaceAll(',', '').split('.');
-  const normalized = BigInt(whole).toString();
-  if (normalized.length > 13) throw new RequestError(400, `${label} is too large.`);
-  return `${normalized}.${fraction.padEnd(2, '0')}`;
+  if (parsed.error === 'size') throw new RequestError(400, `${label} is too large.`);
+  return parsed.value;
 }
 
 const smallNumbers = [

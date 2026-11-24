@@ -22,7 +22,7 @@ If a reverse proxy terminates HTTPS, set `PACCO_ORIGIN` to the browser-facing or
 
 ## Checklists and slips
 
-New BAC documentation transactions start with the 63 requirements in [the supplied CSV](docs/BAC%20Documentation.csv). Each requirement begins as **Not complied** and can be marked **Complied** or **N/A**. Existing transactions retain their saved checklists. Notice of Award, Performance Security, Duly notarized contract, Notice to Proceed, and CARI have optional document details on their checklist rows. Run `npm run migrate` before starting the updated application to enable these fields on new and existing BAC checklist rows.
+New BAC documentation transactions start with the 63 requirements in [the supplied CSV](docs/BAC%20Documentation.csv). Each requirement begins as **Not Complied** and can be marked **Complied** or **N/A**. Existing transactions retain their saved checklists. Notice of Award, Performance Security, Duly notarized contract, Notice to Proceed, and CARI have optional document fields in their **Add details** dialogs. All requirements support optional remarks. Confirm dialog edits with **OK** or **Enter**, then use **Save checklist** to persist the draft. Run `npm run migrate` before starting the updated application to enable these fields on new and existing BAC checklist rows.
 
 Development fixtures use visibly labeled sample items for the other transaction types. Auditors can add requirements manually when no checklist is configured. The default suspension slip is labeled for testing.
 
