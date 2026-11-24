@@ -1,0 +1,11 @@
+[Unit]
+Description=PACCO audit backups at noon and 4:30 PM Philippine time
+
+[Timer]
+OnCalendar=*-*-* 12:00:00 Asia/Manila
+OnCalendar=*-*-* 16:30:00 Asia/Manila
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

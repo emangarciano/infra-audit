@@ -1,0 +1,375 @@
+import { RequestError } from './database.js';
+import {
+  amount, amountForCopy, auditRoles, checklistStates, date, id, movementKinds,
+  oneOf, statusNames, text, today, types,
+} from './domain.js';
+import { renderSlip } from './references.js';
+
+const txColumns = `
+  t.id, t.project_id, p.title AS project, t.type, t.reference, t.received_on::text,
+  t.assigned_auditor_id, a.display_name AS assigned_auditor, t.revision, t.notes,
+  movement.new_status AS status, movement.actual_on::text AS latest_action_on,
+  movement.kind = 'void' AS voided
+`;
+const txTables = `
+  transactions t JOIN projects p ON p.id = t.project_id
+  JOIN accounts a ON a.id = t.assigned_auditor_id
+  JOIN LATERAL (
+    SELECT kind, new_status, actual_on, id
+    FROM audit_events WHERE transaction_id = t.id AND kind = ANY($1::text[])
+    ORDER BY id DESC LIMIT 1
+  ) movement ON true
+`;
+const projectColumns = `
+  id, title, contractor, contract_amount, contract_date::text,
+  contract_duration, revision, created_by, updated_by, created_at, updated_at
+`;
+const eventColumns = `id, kind, actor_id, actor_name, actual_on::text, recorded_at,
+  previous_status, new_status, details`;
+
+function projectFields(body, previous = {}) {
+  return {
+    title: text(body.title ?? previous.title, 'Project title or reference', 200, true),
+    contractor: Object.hasOwn(body, 'contractor') ? text(body.contractor, 'Contractor', 200) : previous.contractor ?? null,
+    contract_amount: Object.hasOwn(body, 'contract_amount')
+      ? amount(body.contract_amount, 'Contract amount') : previous.contract_amount ?? null,
+    contract_date: Object.hasOwn(body, 'contract_date')
+      ? date(body.contract_date, 'Contract date') : previous.contract_date ?? null,
+    contract_duration: Object.hasOwn(body, 'contract_duration')
+      ? text(body.contract_duration, 'Contract duration', 100) : previous.contract_duration ?? null,
+  };
+}
+
+function diff(before, after) {
+  return Object.fromEntries(Object.entries(after)
+    .filter(([field, value]) => before[field] !== value)
+    .map(([field, value]) => [field, { before: before[field], after: value }]));
+}
+
+function requireRevision(current, submitted) {
+  if (current !== id(submitted, 'Record revision')) {
+    throw new RequestError(409, 'This record changed while you were editing. Review the current record before reapplying your changes.', 'revision');
+  }
+}
+
+async function event(client, user, record, kind, options = {}) {
+  const result = await client.query(`
+    INSERT INTO audit_events
+      (project_id, transaction_id, kind, actor_id, actor_name, actual_on, previous_status, new_status, details)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
+  `, [
+    record.project_id, record.id, kind, user.id, user.displayName,
+    options.actualOn ?? today(), options.previous ?? null, options.next ?? null,
+    JSON.stringify(options.details ?? {}),
+  ]);
+  return result.rows[0].id;
+}
+
+function visibleEvent(row, includeDetails) {
+  const { details, ...metadata } = row;
+  if (!includeDetails) return metadata;
+  const { slip_html: slipHtml, ...visible } = details;
+  return { ...metadata, details: visible, has_slip: Boolean(slipHtml) };
+}
+
+export async function lookups(client) {
+  const projects = await client.query('SELECT id, title FROM projects ORDER BY lower(title), id');
+  const auditors = await client.query(`
+    SELECT id, display_name, active, role FROM accounts
+    WHERE role = ANY($1::text[]) OR EXISTS (
+      SELECT 1 FROM transactions WHERE assigned_auditor_id = accounts.id
+    )
+    ORDER BY lower(display_name), id
+  `, [auditRoles]);
+  return {
+    projects: projects.rows,
+    auditors: auditors.rows.map(({ id, display_name, active, role }) => ({
+      id, display_name, assignable: active && auditRoles.includes(role),
+    })),
+    types,
+    statuses: statusNames,
+  };
+}
+
+export async function createProject(client, user, body) {
+  const values = projectFields(auditRoles.includes(user.role) ? body : { title: body.title });
+  await client.query('SELECT pg_advisory_xact_lock(712, hashtext(lower($1)))', [values.title]);
+  if (body.allow_duplicate !== true) {
+    const duplicate = await client.query('SELECT id FROM projects WHERE lower(title) = lower($1) LIMIT 1', [values.title]);
+    if (duplicate.rowCount) {
+      throw new RequestError(409, 'A project already uses this title or reference. Create another anyway?', 'duplicate');
+    }
+  }
+  const result = await client.query(`
+    INSERT INTO projects (title, contractor, contract_amount, contract_date, contract_duration, created_by, updated_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id, title
+  `, [...Object.values(values), user.id]);
+  return result.rows[0];
+}
+
+export async function readProject(client, user, projectId) {
+  if (user.role === 'intake') {
+    const result = await client.query('SELECT id, title FROM projects WHERE id = $1', [projectId]);
+    if (!result.rowCount) throw new RequestError(404, 'Project not found.');
+    return result.rows[0];
+  }
+  const result = await client.query(`SELECT ${projectColumns} FROM projects WHERE id = $1 FOR SHARE`, [projectId]);
+  if (!result.rowCount) throw new RequestError(404, 'Project not found.');
+  const history = await client.query(`
+    SELECT ${eventColumns} FROM audit_events
+    WHERE project_id = $1 AND transaction_id IS NULL ORDER BY id
+  `, [projectId]);
+  return { ...result.rows[0], history: history.rows };
+}
+
+export async function correctProject(client, user, projectId, body) {
+  const result = await client.query(`SELECT ${projectColumns} FROM projects WHERE id = $1 FOR UPDATE`, [projectId]);
+  const current = result.rows[0];
+  if (!current) throw new RequestError(404, 'Project not found.');
+  requireRevision(current.revision, body.revision);
+  const values = projectFields(body, current);
+  const changes = diff(current, values);
+  if (Object.keys(changes).length) {
+    await client.query(`
+      UPDATE projects SET title = $2, contractor = $3, contract_amount = $4, contract_date = $5,
+        contract_duration = $6, revision = revision + 1, updated_by = $7, updated_at = clock_timestamp()
+      WHERE id = $1
+    `, [projectId, ...Object.values(values), user.id]);
+    await event(client, user, { project_id: projectId, id: null }, 'project_correction', {
+      actualOn: date(body.actual_on, 'Action date', today()),
+      details: { changes },
+    });
+  }
+  return readProject(client, user, projectId);
+}
+
+export async function createTransaction(client, user, body, references) {
+  const projectId = id(body.project_id, 'Project');
+  const type = oneOf(body.type, Object.keys(types), 'Transaction type');
+  const reference = text(body.reference, 'Transaction reference or title', 200, true);
+  const receivedOn = date(body.received_on, 'Received date', today());
+  const auditorId = user.role === 'intake' ? id(body.assigned_auditor_id, 'Assigned auditor') : user.id;
+  const notes = user.role === 'intake' ? null : text(body.notes, 'Notes', 2500);
+  const project = await client.query('SELECT id FROM projects WHERE id = $1', [projectId]);
+  if (!project.rowCount) throw new RequestError(400, 'Select an existing project.');
+  const auditor = await client.query(
+    'SELECT id FROM accounts WHERE id = $1 AND active AND role = ANY($2::text[]) FOR SHARE',
+    [auditorId, auditRoles],
+  );
+  if (!auditor.rowCount) throw new RequestError(400, 'Select an active auditor.');
+  await client.query('SELECT pg_advisory_xact_lock(713, hashtext(lower($1)))', [`${projectId}:${type}:${reference}`]);
+  if (body.allow_duplicate !== true) {
+    const existing = await client.query(`
+      SELECT t.id FROM transactions t
+      WHERE t.project_id = $1 AND t.type = $2 AND lower(t.reference) = lower($3)
+        AND NOT EXISTS (SELECT 1 FROM audit_events e WHERE e.transaction_id = t.id AND e.kind = 'void')
+      LIMIT 1
+    `, [projectId, type, reference]);
+    if (existing.rowCount) {
+      throw new RequestError(409, 'This project already has a transaction with the same type and reference. Create another anyway?', 'duplicate');
+    }
+  }
+  const saved = await client.query(`
+    INSERT INTO transactions (project_id, type, reference, received_on, assigned_auditor_id, notes)
+    VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, project_id
+  `, [projectId, type, reference, receivedOn, auditorId, notes]);
+  const record = saved.rows[0];
+  const labels = references.checklists[type] ?? [];
+  if (labels.length) {
+    await client.query(`
+      INSERT INTO checklist_items (transaction_id, label) SELECT $1, label FROM unnest($2::text[]) AS label
+    `, [record.id, labels]);
+  }
+  await event(client, user, record, 'register', { actualOn: receivedOn, next: 'Under Audit' });
+  return record;
+}
+
+function summary(record) {
+  const { notes, revision, ...visible } = record;
+  return visible;
+}
+
+export async function listTransactions(client, filters) {
+  const values = [movementKinds];
+  const conditions = [];
+  const query = text(filters.q, 'Search', 200);
+  if (query) {
+    const n = values.push(query);
+    conditions.push(`(movement.kind <> 'void' OR lower(t.reference) = lower($${n}))`);
+    conditions.push(`(strpos(lower(t.reference), lower($${n})) > 0 OR strpos(lower(p.title), lower($${n})) > 0)`);
+  } else {
+    conditions.push("movement.kind <> 'void'");
+  }
+  if (filters.project_id) conditions.push(`t.project_id = $${values.push(id(filters.project_id, 'Project'))}`);
+  if (filters.assigned_auditor_id) {
+    conditions.push(`t.assigned_auditor_id = $${values.push(id(filters.assigned_auditor_id, 'Assigned auditor'))}`);
+  }
+  if (filters.type) conditions.push(`t.type = $${values.push(oneOf(filters.type, Object.keys(types), 'Transaction type'))}`);
+  if (filters.status) conditions.push(`movement.new_status = $${values.push(oneOf(filters.status, statusNames, 'Status'))}`);
+  const result = await client.query(`
+    SELECT ${txColumns} FROM ${txTables}
+    WHERE ${conditions.join(' AND ')} ORDER BY movement.id DESC
+  `, values);
+  return result.rows.map(summary);
+}
+
+async function findTransaction(client, transactionId) {
+  const result = await client.query(`SELECT ${txColumns} FROM ${txTables} WHERE t.id = $2`, [
+    movementKinds, transactionId,
+  ]);
+  if (!result.rowCount) throw new RequestError(404, 'Transaction not found.');
+  return result.rows[0];
+}
+
+async function checklist(client, transactionId) {
+  const result = await client.query(`
+    SELECT id, label, state, remarks, custom FROM checklist_items WHERE transaction_id = $1 ORDER BY id
+  `, [transactionId]);
+  return result.rows;
+}
+
+export async function readTransaction(client, user, transactionId) {
+  await client.query('SELECT id FROM transactions WHERE id = $1 FOR SHARE', [transactionId]);
+  const record = await findTransaction(client, transactionId);
+  const audit = auditRoles.includes(user.role);
+  const result = await client.query(`
+    SELECT ${eventColumns} FROM audit_events WHERE transaction_id = $1
+      AND ($2 OR kind = ANY($3::text[])) ORDER BY id
+  `, [transactionId, audit, movementKinds]);
+  const history = result.rows.map((row) => visibleEvent(row, audit));
+  if (!audit) {
+    return { ...summary(record), revision: record.revision, history };
+  }
+  return { ...record, history, checklist: await checklist(client, transactionId) };
+}
+
+async function openForChange(client, transactionId, revision) {
+  const result = await client.query('SELECT revision FROM transactions WHERE id = $1 FOR UPDATE', [transactionId]);
+  if (!result.rowCount) throw new RequestError(404, 'Transaction not found.');
+  requireRevision(result.rows[0].revision, revision);
+  const record = await findTransaction(client, transactionId);
+  if (record.voided) throw new RequestError(409, 'This duplicate is voided. Its history is available for review.');
+  return record;
+}
+
+async function incrementRevision(client, transactionId) {
+  await client.query('UPDATE transactions SET revision = revision + 1 WHERE id = $1', [transactionId]);
+}
+
+export async function correctTransaction(client, user, transactionId, body) {
+  const record = await openForChange(client, transactionId, body.revision);
+  const values = {
+    reference: text(body.reference ?? record.reference, 'Transaction reference or title', 200, true),
+    received_on: date(body.received_on, 'Received date', record.received_on),
+    notes: Object.hasOwn(body, 'notes') ? text(body.notes, 'Notes', 2500) : record.notes,
+  };
+  const changes = diff(record, values);
+  if (Object.keys(changes).length) {
+    await client.query('UPDATE transactions SET reference = $2, received_on = $3, notes = $4 WHERE id = $1',
+      [transactionId, ...Object.values(values)]);
+    await event(client, user, record, 'correct', {
+      actualOn: date(body.actual_on, 'Action date', today()), details: { changes },
+    });
+    await incrementRevision(client, transactionId);
+  }
+  return readTransaction(client, user, transactionId);
+}
+
+export async function saveChecklist(client, user, transactionId, body) {
+  const record = await openForChange(client, transactionId, body.revision);
+  const stored = new Map((await checklist(client, transactionId)).map((item) => [item.id, item]));
+  const items = body.items ?? [];
+  if (!Array.isArray(items)) throw new RequestError(400, 'Checklist items must be a list.');
+  const changes = [];
+  for (const entry of items) {
+    if (entry == null || typeof entry !== 'object') throw new RequestError(400, 'Checklist item is invalid.');
+    const item = stored.get(id(entry.id, 'Checklist item'));
+    if (!item) throw new RequestError(400, 'Select each checklist item once from this transaction.');
+    stored.delete(item.id);
+    const state = oneOf(entry.state, checklistStates, 'Checklist state');
+    const remarks = text(entry.remarks, 'Checklist remarks');
+    if (item.state !== state || item.remarks !== remarks) {
+      await client.query('UPDATE checklist_items SET state = $2, remarks = $3 WHERE id = $1', [item.id, state, remarks]);
+      changes.push({ before: item, after: { ...item, state, remarks } });
+    }
+  }
+  const label = text(body.new_label, 'Requirement label', 240);
+  if (label) {
+    const saved = await client.query(`
+      INSERT INTO checklist_items (transaction_id, label, custom) VALUES ($1, $2, true)
+      RETURNING id, label, state, remarks, custom
+    `, [transactionId, label]);
+    changes.push({ before: null, after: saved.rows[0] });
+  }
+  if (changes.length) {
+    await event(client, user, record, 'checklist', {
+      actualOn: date(body.actual_on, 'Action date', today()), details: { changes },
+    });
+    await incrementRevision(client, transactionId);
+  }
+  return readTransaction(client, user, transactionId);
+}
+
+const transitions = {
+  suspend: { from: 'Under Audit', to: 'Suspended' },
+  resubmit: { from: 'Suspended', to: 'Resubmitted' },
+  resume: { from: 'Resubmitted', to: 'Under Audit' },
+  certify: { from: 'Under Audit', to: 'Audited' },
+};
+
+export async function actOnTransaction(client, user, transactionId, kind, body, references) {
+  const record = await openForChange(client, transactionId, body.revision);
+  const transition = transitions[kind];
+  if (transition && record.status !== transition.from) {
+    throw new RequestError(409, `This action requires a transaction marked ${transition.from}.`);
+  }
+  const actualOn = date(body.actual_on, 'Action date', today());
+  const remarks = text(body.remarks, kind === 'void' ? 'Duplicate reason' : 'Action remarks', 1000, kind === 'void');
+  const details = { remarks };
+  if (kind === 'suspend' || kind === 'certify') {
+    const unchecked = (await checklist(client, transactionId)).filter((item) => item.state === 'Unchecked');
+    if (kind === 'suspend') {
+      if (!unchecked.length) {
+        throw new RequestError(400, 'There are no unchecked applicable requirements to include on a suspension slip.');
+      }
+      const itemRemarks = body.item_remarks ?? {};
+      if (!itemRemarks || typeof itemRemarks !== 'object' || Array.isArray(itemRemarks)) {
+        throw new RequestError(400, 'Review the suspension items and remarks.');
+      }
+      const snapshot = {
+        project: record.project, type: record.type, reference: record.reference,
+        issuer: user.displayName, actualOn, remarks,
+        items: unchecked.map((item) => ({
+          label: item.label,
+          remarks: Object.hasOwn(itemRemarks, item.id) ? text(itemRemarks[item.id], 'Item remarks') : item.remarks,
+        })),
+      };
+      details.slip_html = renderSlip(references.layout, snapshot);
+      details.slip = snapshot;
+    } else {
+      details.justification = text(body.justification, 'Justification for unchecked requirements', 2500, unchecked.length > 0);
+      details.certified_amount = amount(body.certified_amount, 'Certified amount');
+      if (record.type === 'bac' && details.certified_amount !== null) {
+        throw new RequestError(400, 'Certified amounts apply to payment, billing, and retention transactions.');
+      }
+      if (details.certified_amount !== null) Object.assign(details, amountForCopy(details.certified_amount));
+    }
+  }
+  const eventId = await event(client, user, record, kind, {
+    actualOn, previous: record.status, next: transition?.to ?? record.status, details,
+  });
+  await incrementRevision(client, transactionId);
+  return { record: await readTransaction(client, user, transactionId), event_id: eventId };
+}
+
+export async function readSlip(client, transactionId, eventId) {
+  if (typeof eventId !== 'string' || !/^[1-9][0-9]{0,18}$/.test(eventId) || BigInt(eventId) > 9223372036854775807n) {
+    throw new RequestError(404, 'Suspension slip not found.');
+  }
+  const result = await client.query(`
+    SELECT details ->> 'slip_html' AS html FROM audit_events
+    WHERE transaction_id = $1 AND id = $2 AND kind = 'suspend'
+  `, [transactionId, eventId]);
+  if (!result.rows[0]?.html) throw new RequestError(404, 'Suspension slip not found.');
+  return result.rows[0].html;
+}

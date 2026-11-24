@@ -1,0 +1,9 @@
+[Unit]
+Description=PACCO audit database backup
+
+[Service]
+Type=oneshot
+User=pacco-audit
+WorkingDirectory=/opt/pacco-infra-audit
+EnvironmentFile=/etc/pacco-audit.env
+ExecStart=/usr/bin/node ops/database-maintenance.js backup
