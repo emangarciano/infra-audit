@@ -293,6 +293,18 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     const detail = await success(duplicatePath, { cookie: supervisor });
     const started = await success(`${duplicatePath}/actions/start`, post({ revision: detail.revision }, supervisor));
     assert.equal(started.record.history.at(-1).actor_id, credentials.supervisor);
+
+    const voidCandidate = await success('/transactions', post({
+      project_id: before.project_id, type: 'progress', reference: 'Voided Pending fixture',
+      assigned_auditor_id: before.assigned_auditor_id,
+    }, intake), 201);
+    const voidPath = `/transactions/${voidCandidate.id}`;
+    const candidate = await success(voidPath, { cookie: auditor });
+    const { record: voided } = await success(`${voidPath}/actions/void`, post({
+      revision: candidate.revision, remarks: 'Development fixture duplicate',
+    }, auditor));
+    assert.equal(voided.status, 'Pending');
+    assert.equal((await request(`${voidPath}/actions/start`, post({ revision: voided.revision }, auditor))).status, 409);
   });
 
   await t.test('Existing projects preserve their IDs and labels across migration', async () => {
@@ -304,6 +316,13 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     try {
       await coordinator.pool.query(`CREATE SCHEMA ${legacySchema}`);
       await migrate(legacyDb);
+      await legacyDb.pool.query(`
+        ALTER TABLE audit_events DROP CONSTRAINT audit_events_kind_check,
+          ADD CONSTRAINT audit_events_kind_check CHECK (kind IN (
+            'project_correction', 'register', 'checklist', 'correct',
+            'suspend', 'resubmit', 'resume', 'certify', 'void'
+          ))
+      `);
       await legacyDb.pool.query('ALTER TABLE projects DROP COLUMN reference');
       await legacyDb.pool.query('ALTER TABLE transactions DROP COLUMN obligation_request_reference');
       const account = await legacyDb.pool.query(`
@@ -489,8 +508,10 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
   await t.test('AC-05 resubmission preserves checklist and requires explicit resumption', async () => {
     await act('resubmit', intake);
     assert.equal(record.status, 'Resubmitted');
-    const premature = await request(`${txPath()}/actions/certify`, post({ revision: record.revision }, auditor));
-    assert.equal(premature.status, 409);
+    for (const kind of ['start', 'certify']) {
+      const premature = await request(`${txPath()}/actions/${kind}`, post({ revision: record.revision }, auditor));
+      assert.equal(premature.status, 409);
+    }
     await act('resume', auditor);
     assert.equal(record.status, 'Under Audit');
     assert.equal(record.checklist.find((item) => item.custom).state, 'Checked');
