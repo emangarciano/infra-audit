@@ -153,6 +153,13 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal(queue.find((item) => item.id === selfAssigned.id).assigned_auditor_id, credentials['auditor-b']);
     assert.ok(queue.every((item) => item.status === 'Under Audit'));
     assert.equal((await success(`/projects/${project.id}`, { cookie: auditor })).contract_amount, null);
+
+    const bac = await success(`/transactions/${selfAssigned.id}`, { cookie: otherAuditor });
+    assert.equal(bac.checklist.length, 63);
+    assert.equal(bac.checklist[0].label, 'APP/SPP');
+    assert.equal(bac.checklist.at(-1).label, 'Construction Safety and Health Program approved by DOLE');
+    assert.ok(bac.checklist.some((item) => item.label === 'Valid Joint Venture Agreement, if applicable'));
+    assert.ok(bac.checklist.every((item) => item.state === 'Unchecked' && !item.custom));
   });
 
   await t.test('AC-02 shared search, restricted intake history, and audited project corrections', async () => {

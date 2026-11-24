@@ -285,24 +285,29 @@ function displayProject(record) {
   }, { conflict: `#project/${record.id}` });
 }
 
-function checklistRow(item, editable) {
+function checklistStateLabel(state, type) {
+  const bacLabels = { Unchecked: 'Not complied', Checked: 'Complied' };
+  return type === 'bac' && Object.hasOwn(bacLabels, state) ? bacLabels[state] : state;
+}
+
+function checklistRow(item, editable, states) {
   const name = escape(item.label);
-  const states = ['Unchecked', 'Checked', 'N/A'].map((state) => [state, state]);
   return `<tr data-checklist-id="${item.id}"><td>${name}${item.custom ? ' <span class="muted">(custom)</span>' : ''}</td>
     <td>${editable
       ? `<select name="state_${item.id}" aria-label="State for ${name}">${options(states, item.state)}</select>`
-      : escape(item.state)}</td>
+      : escape(states.find(([value]) => value === item.state)?.[1] ?? item.state)}</td>
     <td>${editable
       ? `<input name="remarks_${item.id}" value="${escape(item.remarks)}" maxlength="1000" aria-label="Remarks for ${name}">`
       : escape(item.remarks || '—')}</td></tr>`;
 }
 
-function checklistPanel(items, editable) {
+function checklistPanel(items, editable, type) {
+  const states = ['Unchecked', 'Checked', 'N/A'].map((state) => [state, checklistStateLabel(state, type)]);
   return `<section class="panel"><h2>Requirement checklist</h2>
     <form id="checklist-form">
     ${items.length ? `<div class="table-panel"><table class="checklist">
     <thead><tr><th scope="col">Requirement</th><th scope="col">State</th><th scope="col">Reason or remarks</th></tr></thead>
-    <tbody>${items.map((item) => checklistRow(item, editable)).join('')}</tbody></table></div>`
+    <tbody>${items.map((item) => checklistRow(item, editable, states)).join('')}</tbody></table></div>`
       : '<p class="muted">No requirements have been recorded.</p>'}
     ${editable ? `<div class="grid form-actions">
       ${field('Add a transaction-specific requirement', 'new_label', '', 'maxlength="240"')}
@@ -316,18 +321,19 @@ function copyField(label, value) {
     <button type="button" data-copy aria-label="Copy ${escape(label)}">Copy</button></div>`;
 }
 
-function changeDetails(changes) {
+function changeDetails(changes, type) {
   if (!changes) return '';
+  const stateLabel = (item) => checklistStateLabel(item.state, type);
   const lines = Array.isArray(changes)
     ? changes.map(({ before, after }) => before
-      ? `${after.label}. State: ${before.state} → ${after.state}. Remarks: ${before.remarks || '—'} → ${after.remarks || '—'}.`
-      : `Added requirement ${after.label} (${after.state}).`)
+      ? `${after.label}. State: ${stateLabel(before)} → ${stateLabel(after)}. Remarks: ${before.remarks || '—'} → ${after.remarks || '—'}.`
+      : `Added requirement ${after.label} (${stateLabel(after)}).`)
     : Object.entries(changes).map(([field, { before, after }]) =>
       `${fieldLabels[field] ?? field}: ${before ?? '—'} → ${after ?? '—'}`);
   return `<details><summary>View changes</summary><ul class="changes">${lines.map((line) => `<li>${escape(line)}</li>`).join('')}</ul></details>`;
 }
 
-function historyPanel(history, transactionId, audit = true) {
+function historyPanel(history, transactionId, audit = true, type) {
   return `<section class="panel"><h2>${audit ? 'Audit history' : 'Movement history'}</h2>
     ${history.length ? `<ol class="history">${history.map((event) => {
       const details = event.details ?? {};
@@ -344,7 +350,7 @@ function historyPanel(history, transactionId, audit = true) {
         ${details.justification ? `<p><strong>Justification</strong> ${escape(details.justification)}</p>` : ''}
         ${details.figures ? copyField('Certified amount in figures', details.figures) + copyField('Certified amount in words', details.words) : ''}
         ${event.has_slip ? `<p><a href="/api/transactions/${transactionId}/slips/${event.id}" target="_blank" rel="noopener">Open printable suspension slip</a></p>` : ''}
-        ${changeDetails(details.changes)}</li>`;
+        ${changeDetails(details.changes, type)}</li>`;
     }).join('')}</ol>` : '<p class="muted">No history recorded.</p>'}
   </section>`;
 }
@@ -386,7 +392,7 @@ function displayTransaction(record) {
       <div><dt>Received or created</dt><dd>${escape(record.received_on)}</dd></div>
       <div><dt>Latest action date</dt><dd>${escape(record.latest_action_on)}</dd></div>
     </dl>${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}</section>
-    ${audit ? checklistPanel(record.checklist, editable) : ''}
+    ${audit ? checklistPanel(record.checklist, editable, record.type) : ''}
     ${editable ? `<section class="panel"><h2>Transaction details</h2><form id="transaction-details" class="stack">
       <div class="grid">
         ${field('Reference or title', 'reference', record.reference, 'required maxlength="200"')}
@@ -394,7 +400,7 @@ function displayTransaction(record) {
         ${field('Action date', 'actual_on', today(), 'required', 'date')}
       </div>${remarks('Notes', 'notes', record.notes, 2500)}
       <div class="actions"><button class="primary" type="submit">Save transaction details</button></div></form></section>` : ''}
-    ${historyPanel(record.history, record.id, audit)}`);
+    ${historyPanel(record.history, record.id, audit, record.type)}`);
   if (editable) {
     const checklistForm = screen.querySelector('#checklist-form');
     const detailsForm = screen.querySelector('#transaction-details');

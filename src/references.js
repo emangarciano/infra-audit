@@ -47,9 +47,18 @@ export async function loadReferences(env = process.env) {
       checklists[type] = labels.map((label) => text(label, 'Checklist label', 240, true));
     }
   } else if (env.PACCO_DEVELOPMENT_FIXTURES === '1') {
-    for (const type of Object.keys(types)) {
+    for (const type of Object.keys(types).filter((key) => key !== 'bac')) {
       checklists[type] = ['Development fixture — sample requirement A', 'Development fixture — sample requirement B'];
     }
+  }
+  if (!Object.hasOwn(checklists, 'bac')) {
+    const source = await readFile(new URL('../docs/BAC Documentation.csv', import.meta.url), 'utf8');
+    checklists.bac = source.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((row) => {
+      const cell = /^(?:"((?:[^"]|"")*)"|([^",]+))$/.exec(row);
+      if (!cell) throw new Error('Each BAC checklist row must contain one requirement label.');
+      const label = cell[1] === undefined ? cell[2] : cell[1].replaceAll('""', '"');
+      return text(label, 'Checklist label', 240, true);
+    });
   }
   const layout = env.PACCO_SLIP_TEMPLATE_FILE
     ? await readFile(env.PACCO_SLIP_TEMPLATE_FILE, 'utf8')

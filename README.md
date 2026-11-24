@@ -22,9 +22,11 @@ If a reverse proxy terminates HTTPS, set `PACCO_ORIGIN` to the browser-facing or
 
 ## Checklists and slips
 
-Development fixtures use visibly labeled sample items and slips. With fixture seeding disabled, auditors can add test requirements manually until PACCO supplies its approved checklists.
+New BAC documentation transactions start with the 63 requirements in [the supplied CSV](docs/BAC%20Documentation.csv). Each requirement begins as **Not complied** and can be marked **Complied** or **N/A**. Existing transactions retain their saved checklists.
 
-Set `PACCO_CHECKLIST_FILE` to a local JSON file that maps each transaction type to an array of approved requirement labels. The keys are `bac`, `advance`, `progress`, `final`, and `retention`. New transactions copy the configured list for their type.
+Development fixtures use visibly labeled sample items for the other transaction types. Auditors can add requirements manually when no checklist is configured. The default suspension slip is labeled for testing.
+
+Set `PACCO_CHECKLIST_FILE` to a local JSON file that maps transaction types to arrays of approved requirement labels. The keys are `bac`, `advance`, `progress`, `final`, and `retention`. A configured `bac` list takes precedence over the supplied CSV. Validate the checklist against PACCO's approved reference before the official pilot.
 
 Set `PACCO_SLIP_TEMPLATE_FILE` to a local HTML template prepared from the approved specimen. Use `{{requirements}}` for the item list and place `{{project}}`, `{{transaction}}`, `{{type}}`, `{{date}}`, `{{issuer}}`, and `{{remarks}}` wherever the form calls for those values. Include print styles in the template so the saved slip retains its layout. Open a slip from audit history and use the browser's Print command.
 

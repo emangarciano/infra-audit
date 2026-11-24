@@ -6,7 +6,7 @@ Development checks ran on 24 November 2026 with Node.js 24, PostgreSQL 16, and c
 | --- | --- | --- |
 | AC-01 | Intake assigned a transaction and an auditor created a self-assigned transaction. Both started Under Audit. Duplicate creation required a deliberate confirmation. | |
 | AC-02 | A second auditor opened another auditor's transaction. Intake received movement metadata and was denied checklist and slip access. | |
-| AC-03 | Checked, Unchecked, N/A, and custom items worked. The suspension snapshot contained only unchecked applicable items and their remarks. | Validate the configured requirements against PACCO's approved checklists. |
+| AC-03 | Checked, Unchecked, N/A, and custom items worked. The suspension snapshot contained only unchecked applicable items and their remarks. The BAC checklist now loads 63 requirements from the supplied CSV and displays Complied, Not complied, and N/A. | Validate the supplied BAC list and the remaining configured requirements against PACCO's approved checklists. |
 | AC-04 | Reprinting returned the same saved HTML after checklist changes and a layout change. | Compare print wording and layout with the PACCO specimen before official pilot use. |
 | AC-05 | Resubmission preserved the checklist, explicit resumption returned the transaction to Under Audit, and repeated suspensions retained both slips. | |
 | AC-06 | The logged-in supervisor was recorded as certifier. Unchecked items required justification. The manual amount was preserved with figures and words, and the workflow ended at Audited. | |
