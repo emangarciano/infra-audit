@@ -87,7 +87,7 @@ function visibleEvent(row, includeDetails) {
 }
 
 export async function lookups(client) {
-  const projects = await client.query(`SELECT ${projectSummaryColumns} FROM projects ORDER BY lower(title), id`);
+  const projects = await listProjects(client);
   const auditors = await client.query(`
     SELECT id, display_name, active, role FROM accounts
     WHERE role = ANY($1::text[]) OR EXISTS (
@@ -96,7 +96,7 @@ export async function lookups(client) {
     ORDER BY lower(display_name), id
   `, [auditRoles]);
   return {
-    projects: projects.rows,
+    projects,
     auditors: auditors.rows.map(({ id, display_name, active, role }) => ({
       id, display_name, assignable: active && auditRoles.includes(role),
     })),

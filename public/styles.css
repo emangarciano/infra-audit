@@ -138,6 +138,9 @@ dialog {
 dialog::backdrop { background: rgb(16 44 39 / .5); }
 dialog form { margin-top: .9rem; }
 dialog .notice { margin: 0; }
+#project-picker [data-project-browser] { border: 0; margin: 0; padding: 0; }
+.project-field { display: grid; justify-items: start; align-content: start; gap: .32rem; overflow-wrap: anywhere; }
+#project-selection-error { color: var(--danger); }
 .slip-items { margin: 0; padding-left: 1.5rem; }
 .slip-items li + li { margin-top: .65rem; }
 .sr-only {

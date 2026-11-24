@@ -223,7 +223,7 @@ function projectBrowser() {
   </section>`;
 }
 
-function bindProjectBrowser(container, projects, projectLink) {
+function bindProjectBrowser(container, projects, chooseProject) {
   const input = container.querySelector('[name="project_search"]');
   const results = container.querySelector('[data-project-results]');
   const missingContractor = 'No contractor recorded';
@@ -242,11 +242,16 @@ function bindProjectBrowser(container, projects, projectLink) {
   let selectedContractor;
   let searchVersion = 0;
   let timer;
+  let displayedProjects;
 
   function projectRows(rows) {
+    displayedProjects = rows;
     return `<div class="table-panel"><table>
       <thead><tr><th scope="col">Project name</th><th scope="col">Project reference</th><th scope="col">Contractor</th></tr></thead>
-      <tbody>${rows.map((project) => `<tr><td>${projectLink(project)}</td>
+      <tbody>${rows.map((project, index) => `<tr><td>${chooseProject
+        ? `<button type="button" data-project-choice="${index}"
+          aria-label="${escape(projectLabel(project.title, project.reference))}, ${escape(project.contractor?.trim() || missingContractor)}">${escape(project.title)}</button>`
+        : `<a href="#project/${project.id}">${escape(project.title)}</a>`}</td>
         <td>${escape(project.reference ?? '—')}</td>
         <td>${escape(project.contractor?.trim() || missingContractor)}</td></tr>`).join('')}</tbody>
     </table></div>`;
@@ -267,6 +272,11 @@ function bindProjectBrowser(container, projects, projectLink) {
   }
 
   results.addEventListener('click', (event) => {
+    const choice = event.target.closest('[data-project-choice]');
+    if (choice) {
+      chooseProject(displayedProjects[Number(choice.dataset.projectChoice)]);
+      return;
+    }
     const contractor = event.target.closest('[data-contractor]');
     if (!contractor && !event.target.closest('[data-contractors]')) return;
     selectedContractor = contractor ? contractors[Number(contractor.dataset.contractor)] : undefined;
@@ -301,8 +311,7 @@ function bindProjectBrowser(container, projects, projectLink) {
 function displayProjects(projects) {
   mount(`${heading('Projects', '<a class="button primary" href="#new-project">New project</a>')}
     ${projectBrowser()}`);
-  bindProjectBrowser(screen.querySelector('[data-project-browser]'), projects,
-    (project) => `<a href="#project/${project.id}">${escape(project.title)}</a>`);
+  bindProjectBrowser(screen.querySelector('[data-project-browser]'), projects);
 }
 
 function projectFields(record = {}, creating = false) {
@@ -325,16 +334,25 @@ function displayNewProject() {
   });
 }
 
-function displayNewTransaction(selectedProject) {
+function displayNewTransaction(projectId) {
   const assigned = lookups.auditors.filter(({ assignable }) => assignable).map(({ id, display_name }) => [id, display_name]);
-  const projectOptions = lookups.projects.map(({ id, title, reference }) => [id, projectLabel(title, reference)]);
-  const canRegister = projectOptions.length && (user.role !== 'intake' || assigned.length);
-  const precondition = projectOptions.length
+  const projects = lookups.projects;
+  const selectedProject = projects.find(({ id }) => String(id) === projectId);
+  const canRegister = projects.length && (user.role !== 'intake' || assigned.length);
+  const precondition = projects.length
     ? '<p>An active auditor account is required for assignment.</p>'
     : '<p><a href="#new-project">Create a project</a> to register its first transaction.</p>';
   mount(`<a class="back" href="#queue">Transaction queue</a>${heading('New transaction', '', user.role === 'intake' ? 'New transactions start Pending.' : 'New transactions start Under Audit.')}
     ${canRegister ? `<form class="panel stack"><div class="grid">
-      ${select('Project', 'project_id', [['', 'Select a project'], ...projectOptions], selectedProject, 'required')}
+      <div class="project-field">
+        <strong>Project (required)</strong>
+        <p id="selected-project" aria-live="polite">${selectedProject
+          ? escape(projectLabel(selectedProject.title, selectedProject.reference)) : 'No project selected'}</p>
+        <input type="hidden" name="project_id" value="${selectedProject?.id ?? ''}">
+        <button type="button" id="choose-project" aria-haspopup="dialog"
+          aria-describedby="selected-project">Choose project</button>
+        <p id="project-selection-error" role="alert" hidden>Choose a project to register this transaction.</p>
+      </div>
       ${select('Type', 'type', [['', 'Select a type'], ...Object.entries(lookups.types)], '', 'required')}
       ${field('Reference or title', 'reference', '', 'required maxlength="200"')}
       ${field('Obligation request reference (optional)', 'obligation_request_reference', '', 'maxlength="200"')}
@@ -343,10 +361,42 @@ function displayNewTransaction(selectedProject) {
         ? select('Assigned auditor', 'assigned_auditor_id', [['', 'Select an auditor'], ...assigned], '', 'required')
         : field('Assigned auditor', 'assigned_display', user.displayName, 'readonly')}
     </div>${isAuditRole() ? remarks('Notes', 'notes', '', 2500) : ''}
-    <div class="actions"><button class="primary" type="submit">Register transaction</button></div></form>`
+    <div class="actions"><button class="primary" type="submit">Register transaction</button></div></form>
+    <dialog id="project-picker" aria-labelledby="project-picker-title"></dialog>`
       : `<section class="panel">${precondition}</section>`}`);
   const form = screen.querySelector('form');
-  if (form) submit(form, async (body) => {
+  if (!form) return;
+
+  const picker = form.querySelector('#choose-project');
+  const selection = form.querySelector('#selected-project');
+  const selectionError = form.querySelector('#project-selection-error');
+  const pickerDialog = screen.querySelector('#project-picker');
+  picker.addEventListener('click', () => {
+    pickerDialog.innerHTML = `<div class="stack"><h2 id="project-picker-title">Choose project</h2>
+      ${projectBrowser()}<div class="actions"><button type="button" data-cancel-pick>Cancel</button></div></div>`;
+    bindProjectBrowser(pickerDialog.querySelector('[data-project-browser]'), projects, (project) => {
+      form.elements.project_id.value = project.id;
+      selection.textContent = projectLabel(project.title, project.reference);
+      selectionError.hidden = true;
+      picker.setAttribute('aria-describedby', 'selected-project');
+      pickerDialog.close();
+    });
+    pickerDialog.querySelector('[data-cancel-pick]').addEventListener('click', () => pickerDialog.close());
+    pickerDialog.showModal();
+    pickerDialog.querySelector('[name="project_search"]').focus();
+  });
+  pickerDialog.addEventListener('close', () => {
+    if (pickerDialog.open) return;
+    pickerDialog.replaceChildren();
+    picker.focus();
+  });
+  submit(form, async (body) => {
+    if (!body.project_id) {
+      selectionError.hidden = false;
+      picker.setAttribute('aria-describedby', 'selected-project project-selection-error');
+      picker.focus();
+      return;
+    }
     const record = await saveNew('/transactions', body);
     if (record) location.hash = `transaction/${record.id}`;
   });
