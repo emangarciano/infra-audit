@@ -92,6 +92,33 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
   const supervisor = (await login('supervisor')).cookie;
   const admin = (await login('system-admin')).cookie;
   assert.ok(intake && auditor && otherAuditor && supervisor && admin);
+
+  await t.test('HTTPS reverse proxy accepts the configured browser origin and sets a secure session', async (proxyTest) => {
+    const origin = 'https://audit.example.test';
+    const proxyApp = createApp(db, references, { origin }).listen(0, '127.0.0.1');
+    proxyTest.after(() => new Promise((resolve) => proxyApp.close(resolve)));
+    await once(proxyApp, 'listening');
+    const endpoint = `http://127.0.0.1:${proxyApp.address().port}/api/session`;
+    const browserLogin = (browserOrigin, fetchSite = 'same-origin') => fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Origin: browserOrigin, 'Sec-Fetch-Site': fetchSite, 'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username: 'auditor-a', pin: '0123' }),
+    });
+
+    const session = await browserLogin(origin);
+    assert.equal(session.status, 200, await session.text());
+    const cookie = session.headers.get('set-cookie');
+    assert.match(cookie, /; Secure(?:;|$)/);
+    const otherOrigin = await browserLogin('https://elsewhere.example.test');
+    assert.equal(otherOrigin.status, 403);
+    await otherOrigin.text();
+    const crossSite = await browserLogin(origin, 'cross-site');
+    assert.equal(crossSite.status, 403);
+    await crossSite.text();
+  });
+
   let project;
   let record;
   let selfAssigned;

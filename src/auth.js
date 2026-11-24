@@ -98,8 +98,8 @@ export async function logOut(client, req) {
   if (token) await client.query('DELETE FROM sessions WHERE token_hash = $1', [digest(token)]);
 }
 
-export function setSessionCookie(req, res, token) {
-  const options = { httpOnly: true, sameSite: 'strict', path: '/', secure: req.secure };
+export function setSessionCookie(res, token, secure) {
+  const options = { httpOnly: true, sameSite: 'strict', path: '/', secure };
   if (token) res.cookie(sessionCookie, token, options);
   else res.clearCookie(sessionCookie, options);
 }

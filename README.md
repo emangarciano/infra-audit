@@ -18,6 +18,8 @@ The account command prompts for a four-digit PIN. Account roles are `intake`, `a
 
 By default the app listens at `http://127.0.0.1:3000`. On the office host, set `PACCO_HOST` to its office LAN address and restrict access to the office network. Set `PORT` to change the port.
 
+If a reverse proxy terminates HTTPS, set `PACCO_ORIGIN` to the browser-facing origin, such as `https://audit.example.org`. The app uses that origin for form submissions and marks session cookies as secure when the origin uses HTTPS.
+
 ## Checklists and slips
 
 Development fixtures use visibly labeled sample items and slips. With fixture seeding disabled, auditors can add test requirements manually until PACCO supplies its approved checklists.

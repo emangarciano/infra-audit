@@ -18,7 +18,19 @@ function payload(req) {
   return req.body;
 }
 
-export function createApp(database, references) {
+function browserOrigin(value) {
+  if (!value) return null;
+  const url = new URL(value);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+      url.pathname !== '/' || url.search || url.hash) {
+    throw new Error('PACCO_ORIGIN must be an HTTP or HTTPS origin, such as https://audit.example.org.');
+  }
+  return url;
+}
+
+export function createApp(database, references, { origin } = {}) {
+  const configuredOrigin = browserOrigin(origin);
+  const secureOrigin = configuredOrigin?.protocol === 'https:';
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => {
@@ -30,7 +42,8 @@ export function createApp(database, references) {
     });
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
       const origin = req.get('origin');
-      if (req.get('sec-fetch-site') === 'cross-site' || (origin && origin !== `${req.protocol}://${req.get('host')}`)) {
+      const expectedOrigin = configuredOrigin?.origin ?? `${req.protocol}://${req.get('host')}`;
+      if (req.get('sec-fetch-site') === 'cross-site' || (origin && origin !== expectedOrigin)) {
         return next(new RequestError(403, 'Submit forms from the audit application.'));
       }
       if (!req.is('application/json')) {
@@ -62,13 +75,13 @@ export function createApp(database, references) {
       return loggedIn;
     });
     if (result.error) return res.status(result.status).json({ error: result.error });
-    setSessionCookie(req, res, result.token);
+    setSessionCookie(res, result.token, secureOrigin || req.secure);
     res.json(result.user);
   });
   app.get('/api/session', handle(roles, (_client, user) => user));
   app.delete('/api/session', async (req, res) => {
     await database.transaction((client) => logOut(client, req));
-    setSessionCookie(req, res);
+    setSessionCookie(res, null, secureOrigin || req.secure);
     res.sendStatus(204);
   });
   app.get('/api/lookups', handle(registerRoles, (client) => lookups(client)));
