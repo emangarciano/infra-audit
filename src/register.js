@@ -7,7 +7,8 @@ import {
 import { renderSlip } from './references.js';
 
 const txColumns = `
-  t.id, t.project_id, p.title AS project, p.reference AS project_reference, t.type, t.reference, t.received_on::text,
+  t.id, t.project_id, p.title AS project, p.reference AS project_reference, t.type, t.reference,
+  t.obligation_request_reference, t.received_on::text,
   t.assigned_auditor_id, a.display_name AS assigned_auditor, t.revision, t.notes,
   movement.new_status AS status, movement.actual_on::text AS latest_action_on,
   movement.kind = 'void' AS voided
@@ -55,6 +56,10 @@ function diff(before, after) {
     .map(([field, value]) => [field, { before: before[field], after: value }]));
 }
 
+function obligationRequestReference(value) {
+  return text(value, 'Obligation request reference', 200);
+}
+
 function requireRevision(current, submitted) {
   if (current !== id(submitted, 'Record revision')) {
     throw new RequestError(409, 'This record changed while you were editing. Review the current record before reapplying your changes.', 'revision');
@@ -98,6 +103,23 @@ export async function lookups(client) {
     types,
     statuses: statusNames,
   };
+}
+
+export async function listProjects(client, query) {
+  const search = text(query, 'Search', 200);
+  const result = await client.query(`
+    SELECT p.id, p.title, p.reference, p.contractor
+    FROM projects p
+    WHERE $1::text IS NULL
+      OR strpos(lower(p.title), lower($1)) > 0
+      OR strpos(lower(p.reference), lower($1)) > 0
+      OR EXISTS (
+        SELECT 1 FROM transactions t WHERE t.project_id = p.id
+          AND strpos(lower(t.obligation_request_reference), lower($1)) > 0
+      )
+    ORDER BY lower(p.title), p.id
+  `, [search]);
+  return result.rows;
 }
 
 export async function createProject(client, user, body) {
@@ -160,6 +182,7 @@ export async function createTransaction(client, user, body, references) {
   const projectId = id(body.project_id, 'Project');
   const type = oneOf(body.type, Object.keys(types), 'Transaction type');
   const reference = text(body.reference, 'Transaction reference or title', 200, true);
+  const obligationReference = obligationRequestReference(body.obligation_request_reference);
   const receivedOn = date(body.received_on, 'Received date', today());
   const auditorId = user.role === 'intake' ? id(body.assigned_auditor_id, 'Assigned auditor') : user.id;
   const notes = user.role === 'intake' ? null : text(body.notes, 'Notes', 2500);
@@ -183,9 +206,10 @@ export async function createTransaction(client, user, body, references) {
     }
   }
   const saved = await client.query(`
-    INSERT INTO transactions (project_id, type, reference, received_on, assigned_auditor_id, notes)
-    VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, project_id
-  `, [projectId, type, reference, receivedOn, auditorId, notes]);
+    INSERT INTO transactions (project_id, type, reference, received_on, assigned_auditor_id, notes,
+      obligation_request_reference)
+    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, project_id
+  `, [projectId, type, reference, receivedOn, auditorId, notes, obligationReference]);
   const record = saved.rows[0];
   const labels = references.checklists[type] ?? [];
   if (labels.length) {
@@ -279,11 +303,15 @@ export async function correctTransaction(client, user, transactionId, body) {
     reference: text(body.reference ?? record.reference, 'Transaction reference or title', 200, true),
     received_on: date(body.received_on, 'Received date', record.received_on),
     notes: Object.hasOwn(body, 'notes') ? text(body.notes, 'Notes', 2500) : record.notes,
+    obligation_request_reference: Object.hasOwn(body, 'obligation_request_reference')
+      ? obligationRequestReference(body.obligation_request_reference) : record.obligation_request_reference,
   };
   const changes = diff(record, values);
   if (Object.keys(changes).length) {
-    await client.query('UPDATE transactions SET reference = $2, received_on = $3, notes = $4 WHERE id = $1',
-      [transactionId, ...Object.values(values)]);
+    await client.query(`
+      UPDATE transactions SET reference = $2, received_on = $3, notes = $4, obligation_request_reference = $5
+      WHERE id = $1
+    `, [transactionId, ...Object.values(values)]);
     await event(client, user, record, 'correct', {
       actualOn: date(body.actual_on, 'Action date', today()), details: { changes },
     });

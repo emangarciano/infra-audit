@@ -5,7 +5,7 @@ import { RequestError } from './database.js';
 import { amount, amountForCopy, auditRoles, id, oneOf, registerRoles, roles } from './domain.js';
 import {
   actOnTransaction, correctProject, correctTransaction, createProject, createTransaction,
-  listTransactions, lookups, readProject, readSlip, readTransaction, saveChecklist,
+  listProjects, listTransactions, lookups, readProject, readSlip, readTransaction, saveChecklist,
 } from './register.js';
 
 const publicFiles = fileURLToPath(new URL('../public/', import.meta.url));
@@ -85,6 +85,8 @@ export function createApp(database, references, { origin } = {}) {
     res.sendStatus(204);
   });
   app.get('/api/lookups', handle(registerRoles, (client) => lookups(client)));
+  app.get('/api/projects', handle(registerRoles, (client, _user, req) =>
+    listProjects(client, req.query.q)));
   app.post('/api/projects', handle(registerRoles, (client, user, req) =>
     createProject(client, user, payload(req)), 201));
   app.get('/api/projects/:id', handle(registerRoles, (client, user, req) =>

@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     revision integer NOT NULL DEFAULT 1
 );
 
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS obligation_request_reference text;
+
 CREATE TABLE IF NOT EXISTS checklist_items (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     transaction_id integer NOT NULL REFERENCES transactions,

@@ -132,6 +132,63 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
   };
   const read = () => success(txPath(), { cookie: auditor });
 
+  await t.test('Project register search finds names, project references, and linked obligation requests', async () => {
+    assert.deepEqual(await success('/projects', { cookie: intake }), []);
+    const north = await success('/projects', post({
+      title: 'North bridge', reference: 'CAP-N100', contractor: 'North Builders', contract_amount: '100',
+    }, intake), 201);
+    const south = await success('/projects', post({
+      title: 'South road', reference: 'CAP-S200', contractor: 'South Builders', contract_amount: '100',
+    }, intake), 201);
+    const search = (query) => success(`/projects?${new URLSearchParams({ q: query })}`, { cookie: intake });
+    assert.deepEqual(await search('  OrTh Bri  '), [{
+      id: north.id, title: 'North bridge', reference: 'CAP-N100', contractor: 'North Builders',
+    }]);
+    assert.deepEqual((await search('s200')).map(({ id }) => id), [south.id]);
+    assert.deepEqual(await search('South Builders'), []);
+    assert.equal((await request('/projects?q=bridge', { cookie: admin })).status, 403);
+
+    const body = { project_id: south.id, type: 'progress', assigned_auditor_id: credentials['auditor-a'] };
+    const first = await success('/transactions', post({
+      ...body, reference: 'First billing', obligation_request_reference: '  ORS-701  ',
+    }, intake), 201);
+    const second = await success('/transactions', post({
+      ...body, reference: 'Second billing', obligation_request_reference: 'ORS-701 supplemental',
+    }, supervisor), 201);
+    for (const invalid of [42, 'X'.repeat(201)]) {
+      assert.equal((await request('/transactions', post({
+        ...body, reference: 'Invalid obligation', obligation_request_reference: invalid,
+      }, auditor))).status, 400);
+    }
+    assert.deepEqual((await search('  ors-701 ')).map(({ id }) => id), [south.id]);
+    assert.equal((await success(`/projects/${south.id}`, { cookie: intake })).title, 'South road');
+    assert.deepEqual(await search('First billing'), []);
+
+    const path = `/transactions/${first.id}`;
+    const before = await success(path, { cookie: intake });
+    assert.equal(before.obligation_request_reference, 'ORS-701');
+    assert.equal(before.reference, 'First billing');
+    const correction = { revision: before.revision, obligation_request_reference: 'ORS-702' };
+    assert.equal((await request(path, patch(correction, intake))).status, 403);
+    const corrected = await success(path, patch(correction, auditor));
+    assert.equal(corrected.revision, before.revision + 1);
+    assert.equal((await request(path, patch(correction, auditor))).status, 409);
+    const event = corrected.history.at(-1);
+    assert.equal(event.actor_name, 'Auditor A');
+    assert.deepEqual(event.details.changes.obligation_request_reference, { before: 'ORS-701', after: 'ORS-702' });
+    assert.deepEqual((await search('ORS-702')).map(({ id }) => id), [south.id]);
+
+    for (const transaction of [first, second]) {
+      const path = `/transactions/${transaction.id}`;
+      const current = await success(path, { cookie: supervisor });
+      const cleared = await success(path, patch({
+        revision: current.revision, obligation_request_reference: '  ',
+      }, supervisor));
+      assert.equal(cleared.obligation_request_reference, null);
+    }
+    assert.deepEqual(await search('ors-70'), []);
+  });
+
   await t.test('AC-01 intake assignment, auditor self-assignment, and duplicate warning', async () => {
     const fields = {
       reference: 'PW-101', title: 'Development fixture project',
@@ -199,6 +256,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
       await coordinator.pool.query(`CREATE SCHEMA ${legacySchema}`);
       await migrate(legacyDb);
       await legacyDb.pool.query('ALTER TABLE projects DROP COLUMN reference');
+      await legacyDb.pool.query('ALTER TABLE transactions DROP COLUMN obligation_request_reference');
       const account = await legacyDb.pool.query(`
         INSERT INTO accounts (username, display_name, role, pin_verifier)
         VALUES ('legacy', 'Legacy Auditor', 'auditor', $1) RETURNING id
@@ -240,6 +298,9 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
           `/transactions/${existing.rows[0].id}`, undefined, cookie,
         )).json();
         assert.equal(existingTransaction.project_id, id);
+        assert.equal(existingTransaction.obligation_request_reference, null);
+        const matches = await (await send('/projects?q=old%20bri', undefined, cookie)).json();
+        assert.deepEqual(matches, [{ id, title: 'Old bridge', reference: null, contractor: null }]);
         assert.equal(existingTransaction.history[0].actor_name, 'Legacy Auditor');
         const fields = { title: 'old bridge', reference: 'PW-OLD', contractor: 'Builder', contract_amount: '100' };
         const warning = await send('/projects', fields, cookie);

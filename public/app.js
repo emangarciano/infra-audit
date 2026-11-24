@@ -18,6 +18,7 @@ const actionLabels = {
 const fieldLabels = {
   title: 'Project name', contractor: 'Contractor', contract_amount: 'Contract amount',
   contract_date: 'Contract date', contract_duration: 'Contract duration',
+  obligation_request_reference: 'Obligation request reference',
   reference: 'Reference or title', received_on: 'Received or created date', notes: 'Transaction notes',
 };
 const filters = {};
@@ -215,13 +216,93 @@ function projectLabel(name, reference) {
   return reference ? `${name} (${reference})` : name;
 }
 
-function displayProjects() {
+function projectBrowser() {
+  return `<section class="panel stack" aria-label="Project register" data-project-browser>
+    ${field('Search projects', 'project_search', '', 'placeholder="Name, project reference or obligation request"', 'search')}
+    <div data-project-results aria-live="polite"></div>
+  </section>`;
+}
+
+function bindProjectBrowser(container, projects, projectLink) {
+  const input = container.querySelector('[name="project_search"]');
+  const results = container.querySelector('[data-project-results]');
+  const missingContractor = 'No contractor recorded';
+  const grouped = new Map();
+  for (const project of projects) {
+    const contractor = project.contractor?.trim() || null;
+    if (!grouped.has(contractor)) grouped.set(contractor, []);
+    grouped.get(contractor).push(project);
+  }
+  const contractors = [...grouped.keys()].sort((a, b) => {
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return a.localeCompare(b);
+  });
+  // Undefined shows the contractor list. Null selects projects with no contractor.
+  let selectedContractor;
+  let searchVersion = 0;
+  let timer;
+
+  function projectRows(rows) {
+    return `<div class="table-panel"><table>
+      <thead><tr><th scope="col">Project name</th><th scope="col">Project reference</th><th scope="col">Contractor</th></tr></thead>
+      <tbody>${rows.map((project) => `<tr><td>${projectLink(project)}</td>
+        <td>${escape(project.reference ?? '—')}</td>
+        <td>${escape(project.contractor?.trim() || missingContractor)}</td></tr>`).join('')}</tbody>
+    </table></div>`;
+  }
+
+  function browse() {
+    if (!projects.length) {
+      results.innerHTML = '<p class="empty">No projects registered.</p>';
+    } else if (selectedContractor !== undefined) {
+      results.innerHTML = `<button class="back" type="button" data-contractors>Back to contractors</button>
+        <h2 tabindex="-1">${escape(selectedContractor ?? missingContractor)}</h2>${projectRows(grouped.get(selectedContractor))}`;
+    } else {
+      results.innerHTML = `<h2 tabindex="-1">Contractors</h2><ul class="contractor-list">
+        ${contractors.map((contractor, index) => `<li><button type="button" data-contractor="${index}">
+          ${escape(contractor ?? missingContractor)}</button></li>`).join('')}
+      </ul>`;
+    }
+  }
+
+  results.addEventListener('click', (event) => {
+    const contractor = event.target.closest('[data-contractor]');
+    if (!contractor && !event.target.closest('[data-contractors]')) return;
+    selectedContractor = contractor ? contractors[Number(contractor.dataset.contractor)] : undefined;
+    browse();
+    results.querySelector('h2')?.focus();
+  });
+  input.addEventListener('input', () => {
+    const version = ++searchVersion;
+    const routeVersion = navigationVersion;
+    const query = input.value.trim();
+    clearTimeout(timer);
+    if (!query) {
+      browse();
+      return;
+    }
+    results.innerHTML = '<p class="empty">Searching projects…</p>';
+    timer = setTimeout(async () => {
+      const isCurrent = () => version === searchVersion && routeVersion === navigationVersion && container.isConnected;
+      if (!isCurrent()) return;
+      try {
+        const matches = await api(`/projects?${new URLSearchParams({ q: query })}`);
+        if (isCurrent()) results.innerHTML = matches.length ? projectRows(matches)
+          : '<p class="empty">No projects match your search.</p>';
+      } catch (error) {
+        if (isCurrent()) results.innerHTML = `<p class="empty">${escape(error.message)}</p>`;
+      }
+    }, 250);
+  });
+  browse();
+}
+
+function displayProjects(projects) {
   mount(`${heading('Projects', '<a class="button primary" href="#new-project">New project</a>')}
-    <section class="panel table-panel" aria-label="Projects">
-      ${lookups.projects.length ? `<table><thead><tr><th scope="col">Project name</th><th scope="col">Project reference</th></tr></thead><tbody>
-      ${lookups.projects.map((project) => `<tr><td><a href="#project/${project.id}">${escape(project.title)}</a></td><td>${escape(project.reference ?? '—')}</td></tr>`).join('')}
-      </tbody></table>` : '<p class="empty">No projects registered.</p>'}
-    </section>`);
+    ${projectBrowser()}`);
+  bindProjectBrowser(screen.querySelector('[data-project-browser]'), projects,
+    (project) => `<a href="#project/${project.id}">${escape(project.title)}</a>`);
 }
 
 function projectFields(record = {}, creating = false) {
@@ -256,6 +337,7 @@ function displayNewTransaction(selectedProject) {
       ${select('Project', 'project_id', [['', 'Select a project'], ...projectOptions], selectedProject, 'required')}
       ${select('Type', 'type', [['', 'Select a type'], ...Object.entries(lookups.types)], '', 'required')}
       ${field('Reference or title', 'reference', '', 'required maxlength="200"')}
+      ${field('Obligation request reference (optional)', 'obligation_request_reference', '', 'maxlength="200"')}
       ${field('Received or created date', 'received_on', today(), 'required', 'date')}
       ${user.role === 'intake'
         ? select('Assigned auditor', 'assigned_auditor_id', [['', 'Select an auditor'], ...assigned], '', 'required')
@@ -418,6 +500,7 @@ function displayTransaction(record) {
   mount(`<a class="back" href="#queue">Transaction queue</a>${heading(record.reference, transactionActions(record), lookups.types[record.type])}
     <section class="panel"><h2>Transaction summary</h2><dl class="definition-grid">
       <div><dt>Project</dt><dd><a href="#project/${record.project_id}">${escape(projectLabel(record.project, record.project_reference))}</a></dd></div>
+      ${record.obligation_request_reference ? `<div><dt>Obligation request reference</dt><dd>${escape(record.obligation_request_reference)}</dd></div>` : ''}
       <div><dt>Assigned auditor</dt><dd>${escape(record.assigned_auditor)}</dd></div>
       <div><dt>Status</dt><dd>${badge(record.status, record.voided)}</dd></div>
       <div><dt>Received or created</dt><dd>${escape(record.received_on)}</dd></div>
@@ -427,6 +510,7 @@ function displayTransaction(record) {
     ${editable ? `<section class="panel"><h2>Transaction details</h2><form id="transaction-details" class="stack">
       <div class="grid">
         ${field('Reference or title', 'reference', record.reference, 'required maxlength="200"')}
+        ${field('Obligation request reference (optional)', 'obligation_request_reference', record.obligation_request_reference, 'maxlength="200"')}
         ${field('Received or created date', 'received_on', record.received_on, 'required', 'date')}
         ${field('Action date', 'actual_on', today(), 'required', 'date')}
       </div>${remarks('Notes', 'notes', record.notes, 2500)}
@@ -553,14 +637,18 @@ async function displayRoute() {
     return;
   }
   try {
+    if (page === 'projects') {
+      const projects = await api('/projects');
+      if (version === navigationVersion) displayProjects(projects);
+      return;
+    }
     const referenceData = await api('/lookups');
     if (version !== navigationVersion) return;
     lookups = referenceData;
     if (page === 'queue') {
       const rows = await api(`/transactions?${new URLSearchParams(filters)}`);
       if (version === navigationVersion) displayQueue(rows);
-    } else if (page === 'projects') displayProjects();
-    else if (page === 'new-project') displayNewProject();
+    } else if (page === 'new-project') displayNewProject();
     else if (page === 'new-transaction') displayNewTransaction(id);
     else if (page === 'project' || page === 'transaction') {
       const record = await api(`/${page}s/${encodeURIComponent(id ?? '')}`);
