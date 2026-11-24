@@ -57,7 +57,7 @@ Use **username + fixed four-digit PIN**; lock an account for 15 minutes after fi
 
 ### 4.3 Minimum data
 
-- **Project:** generated ID, project title/reference, optional contractor, optional contract amount, optional contract date/duration, created/updated metadata.
+- **Project:** generated ID, project name, distinct project reference, contractor, contract amount, optional contract date/duration, and created/updated metadata. The name, reference, contractor and amount are required for new projects. Existing projects retain their IDs and names and remain usable with any missing reference, contractor or amount left unset.
 - **Transaction:** generated ID, project ID, one of five types, short reference/title, date received or created, assigned auditor, current derived status, optional notes, record revision.
 - **Checklist item:** transaction ID, requirement label, state (**Unchecked**, **Checked**, **N/A**), optional reason/remarks, optional custom-item marker.
 - **Audit event:** transaction ID, action type, actor, actual action date, system timestamp, previous/new status, optional remarks, recorded snapshot where relevant.
@@ -68,7 +68,7 @@ A transaction can be created without complete BAC documentation or previous bill
 
 ### 4.4 Core workflows
 
-**FR-01 — Create project and transaction.** Administrative staff or auditors create a project with a title/reference; all other project fields may be supplied later. They create a transaction within it by selecting type and minimal identifiers. Administrative staff choose an assigned auditor; an auditor creating one is assigned automatically. A transaction starts **Under Audit** immediately. Warn on likely duplicates, but do not block creation.
+**FR-01 — Create project and transaction.** Administrative staff, auditors and supervisors create a project with a project reference, project name, contract amount and contractor. Contract date and duration are optional. Warn on matching project references and on matching names when the existing project has no reference. Allow creation after explicit confirmation. Auditors and supervisors can correct the reference and name independently with revision checks and attributed before/after history. They create a transaction within it by selecting type and minimal identifiers. Administrative staff choose an assigned auditor; an auditor creating one is assigned automatically. A transaction starts **Under Audit** immediately. Warn on likely duplicates, but do not block creation.
 
 **FR-02 — Shared queue and search.** Show project, type, reference, assigned auditor, status and latest action date. Filter by status, transaction type, project and assigned auditor. Search by project title/reference or transaction reference. Auditors/supervisors can open any record; administrative staff see only the restricted summary/history view.
 
@@ -100,7 +100,7 @@ Run PostgreSQL-consistent backups to a **separate external/network storage devic
 
 | ID | Pass condition |
 |---|---|
-| AC-01 | Administrative staff create a minimal project and assign a new transaction; an auditor creates another and is self-assigned; both appear Under Audit in the shared queue. |
+| AC-01 | Administrative staff and an audit user each create a project with just the four required fields. Omitting any required field is rejected, and an older project with missing fields remains usable for new transactions. Administrative staff assign a new transaction, an auditor creates another and is self-assigned, and both appear Under Audit in the shared queue. |
 | AC-02 | Any auditor finds and opens another auditor's transaction, while administrative staff cannot access its detailed checklist. |
 | AC-03 | Checklists support Checked, Unchecked, N/A and custom items. Suspending includes all and only unchecked applicable items, with optional remarks. |
 | AC-04 | A suspension slip can be printed and later reproduced unchanged after checklist edits. Its layout is compared with the supplied PACCO form before official pilot use. |

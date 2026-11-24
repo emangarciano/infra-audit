@@ -133,7 +133,32 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
   const read = () => success(txPath(), { cookie: auditor });
 
   await t.test('AC-01 intake assignment, auditor self-assignment, and duplicate warning', async () => {
-    project = await success('/projects', post({ title: 'Development fixture project', contract_amount: '999.99' }, intake), 201);
+    const fields = {
+      reference: 'PW-101', title: 'Development fixture project',
+      contractor: 'Original contractor', contract_amount: '999.99',
+    };
+    for (const cookie of [intake, auditor, supervisor]) {
+      for (const key of Object.keys(fields)) {
+        assert.equal((await request('/projects', post({ ...fields, [key]: undefined }, cookie))).status, 400, key);
+        assert.equal((await request('/projects', post({ ...fields, [key]: '   ' }, cookie))).status, 400, key);
+      }
+      assert.equal((await request('/projects', post({ ...fields, contract_amount: '-1.234' }, cookie))).status, 400);
+    }
+    project = await success('/projects', post(fields, intake), 201);
+    const auditProject = await success('/projects', post({ ...fields, reference: 'PW-102' }, otherAuditor), 201);
+    const duplicateProject = await request('/projects', post({
+      ...fields, reference: ' pw-101 ', title: 'Different name',
+    }, intake));
+    assert.equal(duplicateProject.status, 409);
+    assert.equal(duplicateProject.data.code, 'duplicate');
+    await success('/projects', post({ ...fields, allow_duplicate: true }, intake), 201);
+    const savedProject = await success(`/projects/${project.id}`, { cookie: auditor });
+    for (const [key, value] of Object.entries(fields)) assert.equal(savedProject[key], value);
+    assert.equal(savedProject.contract_date, null);
+    assert.equal(savedProject.contract_duration, null);
+    assert.deepEqual(await success(`/projects/${project.id}`, { cookie: intake }), {
+      id: project.id, reference: fields.reference, title: fields.title,
+    });
     const body = {
       project_id: project.id, type: 'progress', reference: 'Fixture progress 01',
       assigned_auditor_id: credentials['auditor-a'], received_on: '2026-11-09',
@@ -144,7 +169,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal(duplicate.data.code, 'duplicate');
     await success('/transactions', post({ ...body, allow_duplicate: true }, intake), 201);
     selfAssigned = await success('/transactions', post({
-      ...body, reference: 'Fixture auditor 02', type: 'bac',
+      ...body, project_id: auditProject.id, reference: 'Fixture auditor 02', type: 'bac',
       assigned_auditor_id: credentials['auditor-a'],
     }, otherAuditor), 201);
 
@@ -152,7 +177,9 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal(queue.find((item) => item.id === record.id).assigned_auditor_id, credentials['auditor-a']);
     assert.equal(queue.find((item) => item.id === selfAssigned.id).assigned_auditor_id, credentials['auditor-b']);
     assert.ok(queue.every((item) => item.status === 'Under Audit'));
-    assert.equal((await success(`/projects/${project.id}`, { cookie: auditor })).contract_amount, null);
+    const byProjectReference = await success('/transactions?q=pw-101', { cookie: intake });
+    assert.deepEqual([...new Set(byProjectReference.map((item) => item.project_id))], [project.id]);
+    assert.equal(byProjectReference[0].project_reference, fields.reference);
 
     const bac = await success(`/transactions/${selfAssigned.id}`, { cookie: otherAuditor });
     assert.equal(bac.checklist.length, 63);
@@ -160,6 +187,75 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal(bac.checklist.at(-1).label, 'Construction Safety and Health Program approved by DOLE');
     assert.ok(bac.checklist.some((item) => item.label === 'Valid Joint Venture Agreement, if applicable'));
     assert.ok(bac.checklist.every((item) => item.state === 'Unchecked' && !item.custom));
+  });
+
+  await t.test('Existing projects preserve their IDs and labels across migration', async () => {
+    // Use a second schema so current-format projects do not lose their references.
+    const legacySchema = `${schema}_legacy`;
+    const legacyUrl = new URL(url);
+    legacyUrl.searchParams.set('options', `-c search_path=${legacySchema}`);
+    const legacyDb = connectDatabase(legacyUrl.toString());
+    try {
+      await coordinator.pool.query(`CREATE SCHEMA ${legacySchema}`);
+      await migrate(legacyDb);
+      await legacyDb.pool.query('ALTER TABLE projects DROP COLUMN reference');
+      const account = await legacyDb.pool.query(`
+        INSERT INTO accounts (username, display_name, role, pin_verifier)
+        VALUES ('legacy', 'Legacy Auditor', 'auditor', $1) RETURNING id
+      `, [await hashPin('0123')]);
+      const inserted = await legacyDb.pool.query(`
+        INSERT INTO projects (title, created_by, updated_by)
+        VALUES ('Old bridge', $1, $1) RETURNING id
+      `, [account.rows[0].id]);
+      const { id } = inserted.rows[0];
+      const existing = await legacyDb.pool.query(`
+        INSERT INTO transactions (project_id, type, reference, received_on, assigned_auditor_id)
+        VALUES ($1, 'bac', 'Existing BAC', '2026-11-01', $2) RETURNING id
+      `, [id, account.rows[0].id]);
+      await legacyDb.pool.query(`
+        INSERT INTO audit_events
+          (project_id, transaction_id, kind, actor_id, actor_name, actual_on, new_status)
+        VALUES ($1, $2, 'register', $3, 'Legacy Auditor', '2026-11-01', 'Under Audit')
+      `, [id, existing.rows[0].id, account.rows[0].id]);
+      await migrate(legacyDb);
+      const legacyServer = createApp(legacyDb, references).listen(0, '127.0.0.1');
+      try {
+        await once(legacyServer, 'listening');
+        const api = `http://127.0.0.1:${legacyServer.address().port}/api`;
+        const send = (path, body, cookie) => fetch(api + path, {
+          method: body ? 'POST' : 'GET',
+          headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) },
+          body: JSON.stringify(body),
+        });
+        const session = await send('/session', { username: 'legacy', pin: '0123' });
+        const cookie = session.headers.get('set-cookie').split(';')[0];
+        await session.json();
+        const project = await (await send(`/projects/${id}`, undefined, cookie)).json();
+        assert.equal(project.id, id);
+        assert.equal(project.title, 'Old bridge');
+        assert.equal(project.reference, null);
+        assert.equal(project.contractor, null);
+        assert.equal(project.contract_amount, null);
+        const existingTransaction = await (await send(
+          `/transactions/${existing.rows[0].id}`, undefined, cookie,
+        )).json();
+        assert.equal(existingTransaction.project_id, id);
+        assert.equal(existingTransaction.history[0].actor_name, 'Legacy Auditor');
+        const fields = { title: 'old bridge', reference: 'PW-OLD', contractor: 'Builder', contract_amount: '100' };
+        const warning = await send('/projects', fields, cookie);
+        assert.equal(warning.status, 409);
+        assert.equal((await warning.json()).code, 'duplicate');
+        assert.equal((await send('/projects', { ...fields, allow_duplicate: true }, cookie)).status, 201);
+        const transaction = await send('/transactions', { project_id: id, type: 'bac', reference: 'Old bridge BAC' }, cookie);
+        assert.equal(transaction.status, 201);
+        assert.equal((await transaction.json()).project_id, id);
+      } finally {
+        await new Promise((resolve) => legacyServer.close(resolve));
+      }
+    } finally {
+      await legacyDb.close();
+      await coordinator.pool.query(`DROP SCHEMA IF EXISTS ${legacySchema} CASCADE`);
+    }
   });
 
   await t.test('BAC document fields are scoped, persisted and recorded in history', async () => {
@@ -212,6 +308,26 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
       revision: current.revision, contractor: 'Development fixture contractor',
     }, supervisor));
     assert.equal(updated.history[0].details.changes.contractor.after, 'Development fixture contractor');
+    const referenceCorrected = await success(`/projects/${project.id}`, patch({
+      revision: updated.revision, reference: 'PW-103',
+    }, supervisor));
+    assert.equal(referenceCorrected.title, current.title);
+    const nameCorrected = await success(`/projects/${project.id}`, patch({
+      revision: referenceCorrected.revision, title: 'Corrected project name',
+    }, auditor));
+    assert.equal(nameCorrected.reference, 'PW-103');
+    assert.deepEqual(referenceCorrected.history.at(-1).details.changes, {
+      reference: { before: 'PW-101', after: 'PW-103' },
+    });
+    assert.equal(referenceCorrected.history.at(-1).actor_name, 'Supervisor');
+    assert.deepEqual(nameCorrected.history.at(-1).details.changes, {
+      title: { before: current.title, after: 'Corrected project name' },
+    });
+    assert.equal(nameCorrected.history.at(-1).actor_name, 'Auditor A');
+    assert.equal((await request(`/projects/${project.id}`, patch({
+      revision: referenceCorrected.revision, title: 'Stale title',
+    }, auditor))).status, 409);
+
     assert.equal((await success(`/projects/${project.id}`, { cookie: intake })).contractor, undefined);
   });
 

@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS projects (
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS reference text;
+
 CREATE TABLE IF NOT EXISTS transactions (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     project_id integer NOT NULL REFERENCES projects,

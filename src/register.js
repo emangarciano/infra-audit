@@ -7,7 +7,7 @@ import {
 import { renderSlip } from './references.js';
 
 const txColumns = `
-  t.id, t.project_id, p.title AS project, t.type, t.reference, t.received_on::text,
+  t.id, t.project_id, p.title AS project, p.reference AS project_reference, t.type, t.reference, t.received_on::text,
   t.assigned_auditor_id, a.display_name AS assigned_auditor, t.revision, t.notes,
   movement.new_status AS status, movement.actual_on::text AS latest_action_on,
   movement.kind = 'void' AS voided
@@ -21,19 +21,27 @@ const txTables = `
     ORDER BY id DESC LIMIT 1
   ) movement ON true
 `;
+const projectSummaryColumns = `id, title, reference`;
 const projectColumns = `
-  id, title, contractor, contract_amount, contract_date::text,
+  ${projectSummaryColumns}, contractor, contract_amount, contract_date::text,
   contract_duration, revision, created_by, updated_by, created_at, updated_at
 `;
 const eventColumns = `id, kind, actor_id, actor_name, actual_on::text, recorded_at,
   previous_status, new_status, details`;
 
-function projectFields(body, previous = {}) {
+function projectFields(body, previous) {
+  const required = !previous;
+  previous ??= {};
+  const contractAmount = Object.hasOwn(body, 'contract_amount')
+    ? amount(body.contract_amount, 'Contract amount') : previous.contract_amount ?? null;
+  if (required && contractAmount === null) throw new RequestError(400, 'Contract amount is required.');
   return {
-    title: text(body.title ?? previous.title, 'Project title or reference', 200, true),
-    contractor: Object.hasOwn(body, 'contractor') ? text(body.contractor, 'Contractor', 200) : previous.contractor ?? null,
-    contract_amount: Object.hasOwn(body, 'contract_amount')
-      ? amount(body.contract_amount, 'Contract amount') : previous.contract_amount ?? null,
+    title: text(Object.hasOwn(body, 'title') ? body.title : previous.title, 'Project name', 200, true),
+    reference: Object.hasOwn(body, 'reference') || required
+      ? text(body.reference, 'Project reference', 200, required) : previous.reference,
+    contractor: Object.hasOwn(body, 'contractor') || required
+      ? text(body.contractor, 'Contractor', 200, required) : previous.contractor,
+    contract_amount: contractAmount,
     contract_date: Object.hasOwn(body, 'contract_date')
       ? date(body.contract_date, 'Contract date') : previous.contract_date ?? null,
     contract_duration: Object.hasOwn(body, 'contract_duration')
@@ -74,7 +82,7 @@ function visibleEvent(row, includeDetails) {
 }
 
 export async function lookups(client) {
-  const projects = await client.query('SELECT id, title FROM projects ORDER BY lower(title), id');
+  const projects = await client.query(`SELECT ${projectSummaryColumns} FROM projects ORDER BY lower(title), id`);
   const auditors = await client.query(`
     SELECT id, display_name, active, role FROM accounts
     WHERE role = ANY($1::text[]) OR EXISTS (
@@ -93,24 +101,28 @@ export async function lookups(client) {
 }
 
 export async function createProject(client, user, body) {
-  const values = projectFields(auditRoles.includes(user.role) ? body : { title: body.title });
-  await client.query('SELECT pg_advisory_xact_lock(712, hashtext(lower($1)))', [values.title]);
+  const { title, reference, contractor, contract_amount } = body;
+  const values = projectFields(auditRoles.includes(user.role) ? body : { title, reference, contractor, contract_amount });
+  await client.query('SELECT pg_advisory_xact_lock(712, hashtext(lower($1)))', [values.reference]);
   if (body.allow_duplicate !== true) {
-    const duplicate = await client.query('SELECT id FROM projects WHERE lower(title) = lower($1) LIMIT 1', [values.title]);
+    const duplicate = await client.query(`
+      SELECT id FROM projects WHERE lower(reference) = lower($1)
+        OR (reference IS NULL AND lower(title) = lower($2)) LIMIT 1
+    `, [values.reference, values.title]);
     if (duplicate.rowCount) {
-      throw new RequestError(409, 'A project already uses this title or reference. Create another anyway?', 'duplicate');
+      throw new RequestError(409, 'A project already uses this reference or has this name with no reference. Create another anyway?', 'duplicate');
     }
   }
   const result = await client.query(`
-    INSERT INTO projects (title, contractor, contract_amount, contract_date, contract_duration, created_by, updated_by)
-    VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id, title
+    INSERT INTO projects (title, reference, contractor, contract_amount, contract_date, contract_duration, created_by, updated_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING ${projectSummaryColumns}
   `, [...Object.values(values), user.id]);
   return result.rows[0];
 }
 
 export async function readProject(client, user, projectId) {
   if (user.role === 'intake') {
-    const result = await client.query('SELECT id, title FROM projects WHERE id = $1', [projectId]);
+    const result = await client.query(`SELECT ${projectSummaryColumns} FROM projects WHERE id = $1`, [projectId]);
     if (!result.rowCount) throw new RequestError(404, 'Project not found.');
     return result.rows[0];
   }
@@ -132,8 +144,8 @@ export async function correctProject(client, user, projectId, body) {
   const changes = diff(current, values);
   if (Object.keys(changes).length) {
     await client.query(`
-      UPDATE projects SET title = $2, contractor = $3, contract_amount = $4, contract_date = $5,
-        contract_duration = $6, revision = revision + 1, updated_by = $7, updated_at = clock_timestamp()
+      UPDATE projects SET title = $2, reference = $3, contractor = $4, contract_amount = $5, contract_date = $6,
+        contract_duration = $7, revision = revision + 1, updated_by = $8, updated_at = clock_timestamp()
       WHERE id = $1
     `, [projectId, ...Object.values(values), user.id]);
     await event(client, user, { project_id: projectId, id: null }, 'project_correction', {
@@ -197,7 +209,8 @@ export async function listTransactions(client, filters) {
   if (query) {
     const n = values.push(query);
     conditions.push(`(movement.kind <> 'void' OR lower(t.reference) = lower($${n}))`);
-    conditions.push(`(strpos(lower(t.reference), lower($${n})) > 0 OR strpos(lower(p.title), lower($${n})) > 0)`);
+    conditions.push(`(strpos(lower(t.reference), lower($${n})) > 0 OR strpos(lower(p.title), lower($${n})) > 0
+      OR strpos(lower(p.reference), lower($${n})) > 0)`);
   } else {
     conditions.push("movement.kind <> 'void'");
   }

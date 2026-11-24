@@ -16,7 +16,7 @@ const actionLabels = {
   resume: 'Audit resumed', certify: 'Marked Audited', void: 'Duplicate voided',
 };
 const fieldLabels = {
-  title: 'Project title or reference', contractor: 'Contractor', contract_amount: 'Contract amount',
+  title: 'Project name', contractor: 'Contractor', contract_amount: 'Contract amount',
   contract_date: 'Contract date', contract_duration: 'Contract duration',
   reference: 'Reference or title', received_on: 'Received or created date', notes: 'Transaction notes',
 };
@@ -177,7 +177,7 @@ async function saveNew(path, body) {
 }
 
 function displayQueue(rows) {
-  const projectOptions = lookups.projects.map(({ id, title }) => [id, title]);
+  const projectOptions = lookups.projects.map(({ id, title, reference }) => [id, projectLabel(title, reference)]);
   const auditorOptions = lookups.auditors.map(({ id, display_name }) => [id, display_name]);
   mount(`${heading('Transaction queue', '<a class="button primary" href="#new-transaction">New transaction</a>')}
     <form id="filters" class="panel">
@@ -196,7 +196,7 @@ function displayQueue(rows) {
         <th scope="col">Reference</th><th scope="col">Project</th><th scope="col">Type</th>
         <th scope="col">Assigned auditor</th><th scope="col">Status</th><th scope="col">Latest action date</th>
       </tr></thead><tbody>${rows.map((row) => `<tr>
-        <td><a href="#transaction/${row.id}">${escape(row.reference)}</a></td><td>${escape(row.project)}</td>
+        <td><a href="#transaction/${row.id}">${escape(row.reference)}</a></td><td>${escape(projectLabel(row.project, row.project_reference))}</td>
         <td>${escape(lookups.types[row.type])}</td><td>${escape(row.assigned_auditor)}</td>
         <td>${badge(row.status, row.voided)}</td><td>${escape(row.latest_action_on)}</td>
       </tr>`).join('')}</tbody></table>` : '<p class="empty">No matching transactions.</p>'}
@@ -211,26 +211,32 @@ function displayQueue(rows) {
   });
 }
 
+function projectLabel(name, reference) {
+  return reference ? `${name} (${reference})` : name;
+}
+
 function displayProjects() {
   mount(`${heading('Projects', '<a class="button primary" href="#new-project">New project</a>')}
     <section class="panel table-panel" aria-label="Projects">
-      ${lookups.projects.length ? `<table><thead><tr><th scope="col">Project title or reference</th></tr></thead><tbody>
-      ${lookups.projects.map((project) => `<tr><td><a href="#project/${project.id}">${escape(project.title)}</a></td></tr>`).join('')}
+      ${lookups.projects.length ? `<table><thead><tr><th scope="col">Project name</th><th scope="col">Project reference</th></tr></thead><tbody>
+      ${lookups.projects.map((project) => `<tr><td><a href="#project/${project.id}">${escape(project.title)}</a></td><td>${escape(project.reference ?? '—')}</td></tr>`).join('')}
       </tbody></table>` : '<p class="empty">No projects registered.</p>'}
     </section>`);
 }
 
-function projectFields(record = {}) {
-  return `${field('Project title or reference', 'title', record.title, 'required maxlength="200"')}
-    ${isAuditRole() ? `${field('Contractor', 'contractor', record.contractor, 'maxlength="200"')}
-    ${field('Contract amount (₱)', 'contract_amount', record.contract_amount, 'inputmode="decimal" maxlength="23"')}
-    ${field('Contract date', 'contract_date', record.contract_date, '', 'date')}
+function projectFields(record = {}, creating = false) {
+  const required = creating ? 'required' : '';
+  return `${field('Project name', 'title', record.title, 'required maxlength="200"')}
+    ${field('Project reference', 'reference', record.reference, `maxlength="200" ${required}`)}
+    ${field('Contractor', 'contractor', record.contractor, `maxlength="200" ${required}`)}
+    ${field('Contract amount (₱)', 'contract_amount', record.contract_amount, `inputmode="decimal" maxlength="23" ${required}`)}
+    ${isAuditRole() ? `${field('Contract date', 'contract_date', record.contract_date, '', 'date')}
     ${field('Contract duration', 'contract_duration', record.contract_duration, 'maxlength="100"')}` : ''}`;
 }
 
 function displayNewProject() {
   mount(`<a class="back" href="#projects">Projects</a>${heading('New project')}
-    <form class="panel"><div class="grid">${projectFields()}</div>
+    <form class="panel"><div class="grid">${projectFields({}, true)}</div>
     <div class="actions form-actions"><button class="primary" type="submit">Create project</button></div></form>`);
   submit(screen.querySelector('form'), async (body) => {
     const record = await saveNew('/projects', body);
@@ -240,7 +246,7 @@ function displayNewProject() {
 
 function displayNewTransaction(selectedProject) {
   const assigned = lookups.auditors.filter(({ assignable }) => assignable).map(({ id, display_name }) => [id, display_name]);
-  const projectOptions = lookups.projects.map(({ id, title }) => [id, title]);
+  const projectOptions = lookups.projects.map(({ id, title, reference }) => [id, projectLabel(title, reference)]);
   const canRegister = projectOptions.length && (user.role !== 'intake' || assigned.length);
   const precondition = projectOptions.length
     ? '<p>An active auditor account is required for assignment.</p>'
@@ -265,7 +271,7 @@ function displayNewTransaction(selectedProject) {
 }
 
 function displayProject(record) {
-  mount(`<a class="back" href="#projects">Projects</a>${heading(record.title,
+  mount(`<a class="back" href="#projects">Projects</a>${heading(projectLabel(record.title, record.reference),
     `<a class="button primary" href="#new-transaction/${record.id}">New transaction</a>
     <button id="project-transactions" type="button">View transactions</button>`)}
     ${isAuditRole() ? `<form id="project-form" class="panel"><h2>Project details</h2>
@@ -339,7 +345,7 @@ function copyField(label, value) {
     <button type="button" data-copy aria-label="Copy ${escape(label)}">Copy</button></div>`;
 }
 
-function changeDetails(changes, type) {
+function changeDetails(changes, type, kind) {
   if (!changes) return '';
   const stateLabel = (item) => checklistStateLabel(item.state, type);
   const lines = Array.isArray(changes)
@@ -351,8 +357,10 @@ function changeDetails(changes, type) {
           .map((key) => `${key.replaceAll('_', ' ')}: ${documentFieldValue(before.document_fields?.[key])} → ${documentFieldValue(after.document_fields?.[key])}.`),
       ].join(' ')
       : `Added requirement ${after.label} (${stateLabel(after)}).`)
-    : Object.entries(changes).map(([field, { before, after }]) =>
-      `${fieldLabels[field] ?? field}: ${before ?? '—'} → ${after ?? '—'}`);
+    : Object.entries(changes).map(([field, { before, after }]) => {
+      const label = field === 'reference' && kind === 'project_correction' ? 'Project reference' : fieldLabels[field] ?? field;
+      return `${label}: ${before ?? '—'} → ${after ?? '—'}`;
+    });
   return `<details><summary>View changes</summary><ul class="changes">${lines.map((line) => `<li>${escape(line)}</li>`).join('')}</ul></details>`;
 }
 
@@ -373,7 +381,7 @@ function historyPanel(history, transactionId, audit = true, type) {
         ${details.justification ? `<p><strong>Justification</strong> ${escape(details.justification)}</p>` : ''}
         ${details.figures ? copyField('Certified amount in figures', details.figures) + copyField('Certified amount in words', details.words) : ''}
         ${event.has_slip ? `<p><a href="/api/transactions/${transactionId}/slips/${event.id}" target="_blank" rel="noopener">Open printable suspension slip</a></p>` : ''}
-        ${changeDetails(details.changes, type)}</li>`;
+        ${changeDetails(details.changes, type, event.kind)}</li>`;
     }).join('')}</ol>` : '<p class="muted">No history recorded.</p>'}
   </section>`;
 }
@@ -409,7 +417,7 @@ function displayTransaction(record) {
   let checklistDirty = false;
   mount(`<a class="back" href="#queue">Transaction queue</a>${heading(record.reference, transactionActions(record), lookups.types[record.type])}
     <section class="panel"><h2>Transaction summary</h2><dl class="definition-grid">
-      <div><dt>Project</dt><dd><a href="#project/${record.project_id}">${escape(record.project)}</a></dd></div>
+      <div><dt>Project</dt><dd><a href="#project/${record.project_id}">${escape(projectLabel(record.project, record.project_reference))}</a></dd></div>
       <div><dt>Assigned auditor</dt><dd>${escape(record.assigned_auditor)}</dd></div>
       <div><dt>Status</dt><dd>${badge(record.status, record.voided)}</dd></div>
       <div><dt>Received or created</dt><dd>${escape(record.received_on)}</dd></div>
