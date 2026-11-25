@@ -339,9 +339,12 @@ function projectFields(record = {}, creating = false) {
 }
 
 function displayNewProject() {
-  mount(`<a class="back" href="#projects">Projects</a>${heading('New project')}
-    <form class="panel"><div class="grid">${projectFields({}, true)}</div>
-    <div class="actions form-actions"><button class="primary" type="submit">Create project</button></div></form>`);
+  mount(`<button class="back" type="button" aria-label="Back to Projects">&lt; Back</button>${heading('New project')}
+    <form class="panel stack">${projectFields({}, true)}
+    <div class="actions"><button class="primary" type="submit">Create project</button></div></form>`);
+  screen.querySelector('.back').addEventListener('click', () => {
+    location.hash = 'projects';
+  });
   submit(screen.querySelector('form'), async (body) => {
     const record = await saveNew('/projects', body);
     if (record) location.hash = `project/${record.id}`;
