@@ -4,10 +4,10 @@ import { createReadStream } from 'node:fs';
 import { appendFile, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { connectDatabase, isInMaintenance, maintenanceFile, maintenanceLock } from '../src/database.js';
+import { applySchema, connectDatabase, isInMaintenance, maintenanceFile, maintenanceLock } from '../src/database.js';
 
 const run = promisify(execFile);
-const tables = ['accounts', 'projects', 'transactions', 'checklist_items', 'audit_events'];
+const tables = ['accounts', 'contractors', 'projects', 'transactions', 'checklist_items', 'audit_events'];
 const retention = 30 * 24 * 60 * 60 * 1000;
 const logFile = resolve(process.env.PACCO_BACKUP_LOG || '.pacco-backup.log');
 
@@ -57,7 +57,7 @@ async function fingerprint(client, allowEmpty = false) {
   const fingerprints = {};
   for (const table of tables) {
     const exists = await client.query('SELECT to_regclass($1) IS NOT NULL AS present', [`public.${table}`]);
-    if (!exists.rows[0].present && allowEmpty) {
+    if (!exists.rows[0].present && (allowEmpty || table === 'contractors')) {
       fingerprints[table] = null;
       continue;
     }
@@ -135,14 +135,28 @@ async function restore(client, directory, archive, options) {
       '--no-owner', '--no-privileges', '--dbname', options.db, archive,
     ], options.env);
     const actual = await fingerprint(client, true);
+    const legacy = metadata.contents.contractors == null;
     for (const table of tables) {
+      if (legacy && table === 'contractors') continue;
       const expected = metadata.contents[table];
       if (actual[table]?.rows !== expected?.rows || actual[table]?.contents !== expected?.contents) {
         throw new Error(`Restoration verification failed for ${table}. Maintenance mode remains active.`);
       }
     }
-    await client.query('DELETE FROM sessions');
-    await log('RESTORE verified accounts, projects, transactions, checklists, slips, and audit history.');
+    await client.query('BEGIN');
+    try {
+      if (legacy) {
+        // An older archive did not replace the live contractor list during pg_restore.
+        await client.query('DROP TABLE IF EXISTS public.contractors');
+        await applySchema(client);
+      }
+      await client.query('DELETE FROM sessions');
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+    await log('RESTORE verified accounts, contractors, projects, transactions, checklists, slips, and audit history.');
     await unlink(maintenanceFile);
   } finally {
     await client.query('SELECT pg_advisory_unlock($1)', [maintenanceLock]);

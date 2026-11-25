@@ -4,7 +4,7 @@ An Express and PostgreSQL register for the [Lean MVP](MVP_SPEC.md). The applicat
 
 ## Run locally
 
-Use Node.js 22 or newer and a dedicated PostgreSQL database. Set `DATABASE_URL` to the connection string for the database owner.
+Use Node.js 22 or newer and a dedicated UTF-8 database on an ICU-enabled PostgreSQL server. Set `DATABASE_URL` to the connection string for the database owner.
 
 ```sh
 npm ci

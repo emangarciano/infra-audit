@@ -337,7 +337,10 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
             'suspend', 'resubmit', 'resume', 'certify', 'void'
           ))
       `);
-      await legacyDb.pool.query('ALTER TABLE projects DROP COLUMN reference');
+      await legacyDb.pool.query(`
+        ALTER TABLE projects DROP COLUMN reference, DROP COLUMN contractor_id, ADD COLUMN contractor text;
+        DROP TABLE contractors;
+      `);
       await legacyDb.pool.query('ALTER TABLE transactions DROP COLUMN obligation_request_reference');
       const account = await legacyDb.pool.query(`
         INSERT INTO accounts (username, display_name, role, pin_verifier)
@@ -348,6 +351,11 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
         VALUES ('Old bridge', $1, $1) RETURNING id
       `, [account.rows[0].id]);
       const { id } = inserted.rows[0];
+      await legacyDb.pool.query(`
+        INSERT INTO projects (title, contractor, created_by, updated_by)
+        VALUES ('Legacy station east', ' Old  Builders ', $1, $1),
+          ('Legacy station west', 'OLD BUILDERS', $1, $1)
+      `, [account.rows[0].id]);
       const existing = await legacyDb.pool.query(`
         INSERT INTO transactions (project_id, type, reference, received_on, assigned_auditor_id)
         VALUES ($1, 'bac', 'Existing BAC', '2026-11-01', $2) RETURNING id
@@ -383,6 +391,10 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
         assert.equal(existingTransaction.obligation_request_reference, null);
         const matches = await (await send('/projects?q=old%20bri', undefined, cookie)).json();
         assert.deepEqual(matches, [{ id, title: 'Old bridge', reference: null, contractor: null, contract_amount: null }]);
+        const stations = await (await send('/projects?q=Legacy%20station', undefined, cookie)).json();
+        assert.deepEqual(stations.map(({ contractor }) => contractor), ['Old Builders', 'Old Builders']);
+        const { contractors } = await (await send('/lookups', undefined, cookie)).json();
+        assert.deepEqual(contractors.map(({ name }) => name), ['Old Builders']);
         assert.equal(existingTransaction.status, 'Under Audit');
         assert.equal(existingTransaction.history[0].new_status, 'Under Audit');
         assert.equal(existingTransaction.history[0].actor_name, 'Legacy Auditor');
@@ -640,5 +652,66 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     const saved = await success(`${path}/checklist`, patch({ revision: initial.revision, new_label: 'APP/SPP' }, auditor));
     const custom = saved.checklist.find((item) => item.custom);
     assert.equal(custom.checklist_group, 'others');
+  });
+
+  await t.test('Projects reuse saved contractors and failed creation leaves the list unchanged', async () => {
+    const fields = { title: 'Contractor fixture', contract_amount: '100' };
+    const [first, second] = await Promise.all([
+      success('/projects', post({ ...fields, reference: 'CT-1', contractor: ' Contractor Ñandú ΟΣ ' }, intake), 201),
+      success('/projects', post({ ...fields, reference: 'CT-2', contractor: 'CONTRACTOR\t ÑANDÚ\u00a0 ος' }, auditor), 201),
+    ]);
+    const { contractors } = await success('/lookups', { cookie: intake });
+    const matches = contractors.filter(({ name }) => name.toLowerCase() === 'contractor ñandú ος');
+    assert.equal(matches.length, 1);
+    const [saved] = matches;
+    assert.deepEqual(await success('/contractors', { cookie: intake }), contractors);
+    assert.equal((await request('/contractors', { cookie: admin })).status, 403);
+    const third = await success('/projects', post({
+      ...fields, reference: 'CT-3', contractor_id: saved.id,
+    }, supervisor), 201);
+    const projects = await success('/projects?q=Contractor%20fixture', { cookie: intake });
+    assert.equal(projects.length, 3);
+    for (const project of [first, second, third]) {
+      assert.equal(projects.find(({ id }) => id === project.id).contractor, saved.name);
+    }
+    assert.equal((await request('/projects', post({
+      ...fields, reference: 'CT-1', contractor: 'Uncommitted Contractor',
+    }, intake))).status, 409);
+    assert.equal((await request('/projects', post({
+      ...fields, reference: 'CT-4', contractor_id: 2147483647,
+    }, intake))).status, 400);
+    assert.deepEqual((await success('/lookups', { cookie: intake })).contractors, contractors);
+  });
+
+  await t.test('Authorized project corrections can reassign a verified contractor variant', async () => {
+    const { contractors } = await success('/lookups', { cookie: auditor });
+    const saved = contractors.find(({ name }) => name === 'North Builders');
+    const { id: projectId } = await success('/projects', post({
+      title: 'Contractor variant fixture', reference: 'CT-5', contractor: 'North Builders Inc.', contract_amount: '100',
+    }, auditor), 201);
+    const transaction = await success('/transactions', post({ project_id: projectId, type: 'bac' }, auditor), 201);
+    const path = `/projects/${projectId}`;
+    const before = await success(path, { cookie: auditor });
+    const correction = { revision: before.revision, contractor_id: saved.id };
+    assert.equal((await request(path, patch(correction, intake))).status, 403);
+    const updated = await success(path, patch(correction, supervisor));
+    assert.equal(updated.id, projectId);
+    assert.equal(updated.contractor, 'North Builders');
+    assert.deepEqual(updated.transactions.map(({ id }) => id), [transaction.id]);
+    const [event] = updated.history;
+    assert.equal(event.actor_name, 'Supervisor');
+    assert.deepEqual(event.details.changes.contractor, { before: 'North Builders Inc.', after: 'North Builders' });
+    assert.equal((await request(path, patch(correction, supervisor))).status, 409);
+    const equivalent = await success(path, patch({
+      revision: updated.revision, contractor: ' NORTH  BUILDERS ',
+    }, auditor));
+    assert.equal(equivalent.revision, updated.revision);
+    assert.equal(equivalent.contractor_id, saved.id);
+    assert.equal((await request(path, patch({
+      revision: updated.revision, contractor: 'Uncommitted Correction', actual_on: 'invalid',
+    }, auditor))).status, 400);
+    const lookups = await success('/lookups', { cookie: auditor });
+    assert.equal(lookups.projects.find(({ id }) => id === projectId).contractor, 'North Builders');
+    assert.ok(!lookups.contractors.some(({ name }) => name === 'Uncommitted Correction'));
   });
 });

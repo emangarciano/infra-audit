@@ -356,11 +356,117 @@ function displayProjects(projects) {
   bindProjectBrowser(screen.querySelector('[data-project-browser]'), projects);
 }
 
+function contractorPicker(creating) {
+  const required = creating ? 'required' : '';
+  return `<div class="stack" data-contractor-picker>
+    <div class="stack" data-saved-contractor>
+      <label>Search contractors<input type="search" data-contractor-search maxlength="200"></label>
+      ${select('Contractor', 'contractor_id', [], '', required)}
+    </div>
+    <div class="stack" data-new-contractor hidden>
+      ${field('New contractor name', 'contractor', '', 'required disabled maxlength="200"')}
+      <p data-contractor-match role="status" hidden></p>
+      <button type="button" data-use-contractor hidden>Use saved contractor</button>
+    </div>
+    <div class="actions"><button type="button" data-contractor-mode>Add new</button></div>
+  </div>`;
+}
+
+function contractorSearchKey(name) {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function bindContractorPicker(form, selectedId = null) {
+  const picker = form.querySelector('[data-contractor-picker]');
+  const saved = picker.querySelector('[data-saved-contractor]');
+  const added = picker.querySelector('[data-new-contractor]');
+  const search = picker.querySelector('[data-contractor-search]');
+  const selection = form.elements.contractor_id;
+  const newName = form.elements.contractor;
+  const mode = picker.querySelector('[data-contractor-mode]');
+  const matchMessage = picker.querySelector('[data-contractor-match]');
+  const useMatch = picker.querySelector('[data-use-contractor]');
+  let contractors = lookups.contractors;
+  const placeholder = selection.required ? 'Choose a contractor' : 'No contractor recorded';
+  let matchedContractor;
+  let refreshTimer;
+  let refreshVersion = 0;
+
+  function filterContractors(selected) {
+    const query = contractorSearchKey(search.value);
+    const matches = contractors.filter(({ id, name }) => (
+      String(id) === selected || contractorSearchKey(name).includes(query)
+    ));
+    selection.innerHTML = options([
+      ['', placeholder], ...matches.map(({ id, name }) => [id, name]),
+    ], selected);
+  }
+
+  function setAddMode(adding) {
+    saved.hidden = adding;
+    selection.disabled = adding;
+    added.hidden = !adding;
+    newName.disabled = !adding;
+    mode.textContent = adding ? 'Choose saved contractor' : 'Add new';
+    if (adding) newName.focus();
+    else selection.focus();
+  }
+
+  function showMatch() {
+    const query = contractorSearchKey(newName.value);
+    matchedContractor = contractors.find(({ name }) => contractorSearchKey(name) === query);
+    matchMessage.hidden = useMatch.hidden = !matchedContractor;
+    matchMessage.textContent = matchedContractor ? `Already saved as ${matchedContractor.name}.` : '';
+  }
+
+  function refreshContractors() {
+    const version = ++refreshVersion;
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      if (!form.isConnected) return;
+      try {
+        const list = await api('/contractors');
+        if (version !== refreshVersion || !form.isConnected) return;
+        if (list.length === contractors.length && list.every(({ id, name }, index) =>
+          id === contractors[index].id && name === contractors[index].name)) return;
+        contractors = list;
+        filterContractors(selection.value);
+        showMatch();
+      } catch {
+        // Keep the current list available during a temporary connection failure.
+      }
+    }, 200);
+  }
+
+  filterContractors(String(selectedId ?? ''));
+  search.addEventListener('input', () => {
+    filterContractors(selection.value);
+    refreshContractors();
+  });
+  search.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      selection.focus();
+    }
+  });
+  mode.addEventListener('click', () => setAddMode(added.hidden));
+  newName.addEventListener('input', () => {
+    showMatch();
+    refreshContractors();
+  });
+  useMatch.addEventListener('click', () => {
+    if (!matchedContractor) return;
+    search.value = '';
+    filterContractors(String(matchedContractor.id));
+    setAddMode(false);
+  });
+}
+
 function projectFields(record = {}, creating = false) {
   const required = creating ? 'required' : '';
   return `${field('Project name', 'title', record.title, 'required maxlength="200"')}
     ${field('Project reference', 'reference', record.reference, `maxlength="200" ${required}`)}
-    ${field('Contractor', 'contractor', record.contractor, `maxlength="200" ${required}`)}
+    ${contractorPicker(creating)}
     ${field('Contract amount (₱)', 'contract_amount', record.contract_amount, `${pesoAmountAttributes} ${required}`)}
     ${!creating && isAuditRole() ? `${field('Contract date', 'contract_date', record.contract_date, '', 'date')}
     ${field('Contract duration', 'contract_duration', record.contract_duration, 'maxlength="100"')}` : ''}`;
@@ -373,7 +479,9 @@ function displayNewProject() {
   screen.querySelector('.back').addEventListener('click', () => {
     location.hash = 'projects';
   });
-  submit(screen.querySelector('form'), async (body) => {
+  const form = screen.querySelector('form');
+  bindContractorPicker(form);
+  submit(form, async (body) => {
     const record = await saveNew('/projects', body);
     if (record) location.hash = `project/${record.id}`;
   });
@@ -449,6 +557,10 @@ function displayNewTransaction(projectId) {
 }
 
 function displayProject(record) {
+  if (record.contractor_id && !lookups.contractors.some(({ id }) => id === record.contractor_id)) {
+    lookups.contractors.push({ id: record.contractor_id, name: record.contractor });
+    lookups.contractors.sort((a, b) => a.name.localeCompare(b.name));
+  }
   mount(`<a class="back" href="#projects">Projects</a>${heading(projectLabel(record.title, record.reference))}
     ${isAuditRole() ? `<form id="project-form" class="panel"><h2>Project details</h2>
       <div class="grid">${projectFields(record)}${field('Action date', 'actual_on', today(), 'required', 'date')}</div>
@@ -456,7 +568,13 @@ function displayProject(record) {
       <div class="notice error form-actions" role="alert" tabindex="-1" hidden></div></form>` : ''}
     ${projectTransactions(record.id, record.transactions)}`);
   const form = screen.querySelector('#project-form');
-  if (form) submit(form, async (body) => {
+  if (!form) return;
+  bindContractorPicker(form, record.contractor_id);
+  submit(form, async (body) => {
+    const selectedName = body.contractor_id
+      ? form.elements.contractor_id.selectedOptions[0].textContent : body.contractor?.trim();
+    if (record.contractor && selectedName && contractorSearchKey(selectedName) !== contractorSearchKey(record.contractor) &&
+        !window.confirm(`Change the contractor from ${record.contractor} to ${selectedName}?`)) return;
     const version = navigationVersion;
     const updated = await api(`/projects/${record.id}`, 'PATCH', { ...body, revision: record.revision });
     if (version !== navigationVersion) return;

@@ -15,10 +15,23 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_seen_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 
+CREATE OR REPLACE FUNCTION clean_contractor_name(name text) RETURNS text
+    LANGUAGE sql IMMUTABLE STRICT
+    RETURN btrim(regexp_replace(name, U&'[\0009-\000D \00A0\1680\2000-\200A\2028\2029\202F\205F\3000\FEFF]+', ' ', 'g'));
+
+CREATE OR REPLACE FUNCTION contractor_name_key(name text) RETURNS text
+    LANGUAGE sql IMMUTABLE STRICT
+    RETURN lower(clean_contractor_name(name) COLLATE pg_catalog."und-x-icu");
+
+CREATE TABLE IF NOT EXISTS contractors (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL CHECK (name <> '' AND name = clean_contractor_name(name)),
+    name_key text GENERATED ALWAYS AS (contractor_name_key(name)) STORED UNIQUE
+);
+
 CREATE TABLE IF NOT EXISTS projects (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     title text NOT NULL,
-    contractor text,
     contract_amount numeric(15, 2),
     contract_date date,
     contract_duration text,
@@ -30,6 +43,29 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS reference text;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS contractor_id integer REFERENCES contractors;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_attribute
+        WHERE attrelid = 'projects'::regclass AND attname = 'contractor' AND NOT attisdropped
+    ) THEN
+        INSERT INTO contractors (name)
+        SELECT DISTINCT ON (contractor_name_key(contractor)) clean_contractor_name(contractor)
+        FROM projects
+        WHERE clean_contractor_name(contractor) <> ''
+        ORDER BY contractor_name_key(contractor), id
+        ON CONFLICT (name_key) DO NOTHING;
+
+        UPDATE projects p SET contractor_id = c.id
+        FROM contractors c
+        WHERE p.contractor_id IS NULL AND c.name_key = contractor_name_key(p.contractor);
+
+        ALTER TABLE projects DROP COLUMN contractor;
+    END IF;
+END;
+$$;
 
 CREATE TABLE IF NOT EXISTS transactions (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

@@ -52,10 +52,12 @@ export function connectDatabase(connectionString = process.env.DATABASE_URL, opt
   };
 }
 
-export async function migrate(database) {
+export async function applySchema(client) {
   const schema = await readFile(new URL('../db/schema.sql', import.meta.url), 'utf8');
-  await database.transaction(async (client) => {
-    await client.query('SELECT pg_advisory_xact_lock($1)', [maintenanceLock + 1]);
-    await client.query(schema);
-  });
+  await client.query('SELECT pg_advisory_xact_lock($1)', [maintenanceLock + 1]);
+  await client.query(schema);
+}
+
+export async function migrate(database) {
+  await database.transaction(applySchema);
 }

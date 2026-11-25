@@ -25,9 +25,10 @@ const txTables = `
 `;
 const projectSummaryColumns = `id, title, reference`;
 const projectColumns = `
-  ${projectSummaryColumns}, contractor, contract_amount, contract_date::text,
+  p.id, title, reference, contractor_id, c.name AS contractor, contract_amount, contract_date::text,
   contract_duration, revision, created_by, updated_by, created_at, updated_at
 `;
+const projectTables = 'projects p LEFT JOIN contractors c ON c.id = p.contractor_id';
 const eventColumns = `id, kind, actor_id, actor_name, actual_on::text, recorded_at,
   previous_status, new_status, details`;
 
@@ -41,14 +42,37 @@ function projectFields(body, previous) {
     title: text(Object.hasOwn(body, 'title') ? body.title : previous.title, 'Project name', 200, true),
     reference: Object.hasOwn(body, 'reference') || required
       ? text(body.reference, 'Project reference', 200, required) : previous.reference,
-    contractor: Object.hasOwn(body, 'contractor') || required
-      ? text(body.contractor, 'Contractor', 200, required) : previous.contractor,
     contract_amount: contractAmount,
     contract_date: Object.hasOwn(body, 'contract_date')
       ? date(body.contract_date, 'Contract date') : previous.contract_date ?? null,
     contract_duration: Object.hasOwn(body, 'contract_duration')
       ? text(body.contract_duration, 'Contract duration', 100) : previous.contract_duration ?? null,
   };
+}
+
+async function projectContractor(client, body, previous) {
+  if (body.contractor_id != null && body.contractor_id !== '') {
+    const { rows: [contractor] } = await client.query(
+      'SELECT id, name FROM contractors WHERE id = $1', [id(body.contractor_id, 'Contractor')],
+    );
+    if (!contractor) throw new RequestError(400, 'Choose a saved contractor.');
+    return contractor;
+  }
+  if (previous && !Object.hasOwn(body, 'contractor') && !Object.hasOwn(body, 'contractor_id')) {
+    return { id: previous.contractor_id, name: previous.contractor };
+  }
+  const name = text(body.contractor, 'Contractor', 200, !previous);
+  if (!name) return { id: null, name: null };
+  const { rows: [created] } = await client.query(`
+    INSERT INTO contractors (name) VALUES (clean_contractor_name($1))
+    ON CONFLICT (name_key) DO NOTHING RETURNING id, name
+  `, [name]);
+  if (created) return created;
+  // A separate statement sees the winning row if another transaction added the name.
+  const { rows: [saved] } = await client.query(
+    'SELECT id, name FROM contractors WHERE name_key = contractor_name_key($1)', [name],
+  );
+  return saved;
 }
 
 function diff(before, after) {
@@ -87,8 +111,14 @@ function visibleEvent(row, includeDetails) {
   return { ...metadata, details: visible, has_slip: Boolean(slipHtml) };
 }
 
+export async function listContractors(client) {
+  const { rows } = await client.query('SELECT id, name FROM contractors ORDER BY name_key, id');
+  return rows;
+}
+
 export async function lookups(client) {
   const projects = await listProjects(client);
+  const contractors = await listContractors(client);
   const auditors = await client.query(`
     SELECT id, display_name, active, role FROM accounts
     WHERE role = ANY($1::text[]) OR EXISTS (
@@ -98,6 +128,7 @@ export async function lookups(client) {
   `, [auditRoles]);
   return {
     projects,
+    contractors,
     auditors: auditors.rows.map(({ id, display_name, active, role }) => ({
       id, display_name, assignable: active && auditRoles.includes(role),
     })),
@@ -109,8 +140,8 @@ export async function lookups(client) {
 export async function listProjects(client, query) {
   const search = text(query, 'Search', 200);
   const result = await client.query(`
-    SELECT p.id, p.title, p.reference, p.contractor, p.contract_amount
-    FROM projects p
+    SELECT p.id, p.title, p.reference, c.name AS contractor, p.contract_amount
+    FROM ${projectTables}
     WHERE $1::text IS NULL
       OR strpos(lower(p.title), lower($1)) > 0
       OR strpos(lower(p.reference), lower($1)) > 0
@@ -124,9 +155,10 @@ export async function listProjects(client, query) {
 }
 
 export async function createProject(client, user, body) {
-  const { title, reference, contractor, contract_amount } = body;
-  const values = projectFields(auditRoles.includes(user.role) ? body : { title, reference, contractor, contract_amount });
+  const { title, reference, contract_amount } = body;
+  const values = projectFields(auditRoles.includes(user.role) ? body : { title, reference, contract_amount });
   await client.query('SELECT pg_advisory_xact_lock(712, hashtext(lower($1)))', [values.reference]);
+  const contractor = await projectContractor(client, body);
   if (body.allow_duplicate !== true) {
     const duplicate = await client.query(`
       SELECT id FROM projects WHERE lower(reference) = lower($1)
@@ -137,9 +169,9 @@ export async function createProject(client, user, body) {
     }
   }
   const result = await client.query(`
-    INSERT INTO projects (title, reference, contractor, contract_amount, contract_date, contract_duration, created_by, updated_by)
+    INSERT INTO projects (title, reference, contract_amount, contract_date, contract_duration, contractor_id, created_by, updated_by)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING ${projectSummaryColumns}
-  `, [...Object.values(values), user.id]);
+  `, [...Object.values(values), contractor.id, user.id]);
   return result.rows[0];
 }
 
@@ -147,7 +179,7 @@ export async function readProject(client, user, projectId) {
   const intake = user.role === 'intake';
   const query = intake
     ? `SELECT ${projectSummaryColumns} FROM projects WHERE id = $1`
-    : `SELECT ${projectColumns} FROM projects WHERE id = $1 FOR SHARE`;
+    : `SELECT ${projectColumns} FROM ${projectTables} WHERE p.id = $1 FOR SHARE OF p`;
   const { rows: [project] } = await client.query(query, [projectId]);
   if (!project) throw new RequestError(404, 'Project not found.');
   const { rows } = await client.query(`
@@ -164,18 +196,19 @@ export async function readProject(client, user, projectId) {
 }
 
 export async function correctProject(client, user, projectId, body) {
-  const result = await client.query(`SELECT ${projectColumns} FROM projects WHERE id = $1 FOR UPDATE`, [projectId]);
+  const result = await client.query(`SELECT ${projectColumns} FROM ${projectTables} WHERE p.id = $1 FOR UPDATE OF p`, [projectId]);
   const current = result.rows[0];
   if (!current) throw new RequestError(404, 'Project not found.');
   requireRevision(current.revision, body.revision);
   const values = projectFields(body, current);
-  const changes = diff(current, values);
+  const contractor = await projectContractor(client, body, current);
+  const changes = diff(current, { ...values, contractor: contractor.name });
   if (Object.keys(changes).length) {
     await client.query(`
-      UPDATE projects SET title = $2, reference = $3, contractor = $4, contract_amount = $5, contract_date = $6,
-        contract_duration = $7, revision = revision + 1, updated_by = $8, updated_at = clock_timestamp()
+      UPDATE projects SET title = $2, reference = $3, contract_amount = $4, contract_date = $5,
+        contract_duration = $6, contractor_id = $7, revision = revision + 1, updated_by = $8, updated_at = clock_timestamp()
       WHERE id = $1
-    `, [projectId, ...Object.values(values), user.id]);
+    `, [projectId, ...Object.values(values), contractor.id, user.id]);
     await event(client, user, { project_id: projectId, id: null }, 'project_correction', {
       actualOn: date(body.actual_on, 'Action date', today()),
       details: { changes },
