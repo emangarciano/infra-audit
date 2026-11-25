@@ -221,11 +221,12 @@ function transactionTable(rows, label) {
       </tr>`).join('')}</tbody></table></div>`;
 }
 
-function projectTransactions(rows) {
+function projectTransactions(projectId, rows) {
   const active = rows.filter(({ voided }) => !voided);
   const voided = rows.filter((row) => row.voided);
   return `<section class="panel stack" aria-labelledby="project-transactions">
     <h2 id="project-transactions">Transactions</h2>
+    <div class="actions"><a class="button primary" href="#new-transaction/${projectId}">New transaction</a></div>
     ${active.length ? transactionTable(active, 'Active transactions')
       : `<p class="empty">${voided.length ? 'No active transactions for this project.' : 'No transactions for this project.'}</p>`}
     ${voided.length ? `<details><summary>Voided transactions (${voided.length})</summary>
@@ -448,13 +449,12 @@ function displayNewTransaction(projectId) {
 }
 
 function displayProject(record) {
-  mount(`<a class="back" href="#projects">Projects</a>${heading(projectLabel(record.title, record.reference),
-    `<a class="button primary" href="#new-transaction/${record.id}">New transaction</a>`)}
+  mount(`<a class="back" href="#projects">Projects</a>${heading(projectLabel(record.title, record.reference))}
     ${isAuditRole() ? `<form id="project-form" class="panel"><h2>Project details</h2>
       <div class="grid">${projectFields(record)}${field('Action date', 'actual_on', today(), 'required', 'date')}</div>
       <div class="actions form-actions"><button class="primary" type="submit">Save project details</button></div>
       <div class="notice error form-actions" role="alert" tabindex="-1" hidden></div></form>` : ''}
-    ${projectTransactions(record.transactions)}`);
+    ${projectTransactions(record.id, record.transactions)}`);
   const form = screen.querySelector('#project-form');
   if (form) submit(form, async (body) => {
     const version = navigationVersion;
