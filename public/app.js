@@ -340,7 +340,7 @@ function projectFields(record = {}, creating = false) {
 
 function displayNewProject() {
   mount(`<button class="back" type="button" aria-label="Back to Projects">&lt; Back</button>${heading('New project')}
-    <form class="panel stack">${projectFields({}, true)}
+    <form class="panel stack new-project-form">${projectFields({}, true)}
     <div class="actions"><button class="primary" type="submit">Create project</button></div></form>`);
   screen.querySelector('.back').addEventListener('click', () => {
     location.hash = 'projects';
