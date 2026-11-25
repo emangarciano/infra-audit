@@ -90,6 +90,12 @@ function bindPesoAmounts(form) {
       input.value = `${BigInt(whole).toLocaleString('en-PH')}.${centavos}`;
     };
     format();
+    input.addEventListener('focus', () => {
+      const value = input.value.trim();
+      if (value.includes(',') && !parsePesoAmount(value).error) {
+        input.value = value.replaceAll(',', '');
+      }
+    });
     input.addEventListener('input', () => {
       const value = input.value.trim();
       input.setCustomValidity(value && parsePesoAmount(value).error
