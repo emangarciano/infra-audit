@@ -98,6 +98,13 @@ button:disabled { cursor: wait; opacity: .65; }
   color: #79212d; background: #fcf0f1; border-color: #e2a9b1;
 }
 .notice a { margin-left: .5rem; }
+.toast {
+  position: fixed; inset: auto 1rem 1rem auto; z-index: 10;
+  display: flex; align-items: flex-start; gap: .75rem;
+  width: max-content; max-width: min(28rem, calc(100% - 2rem)); margin: 0;
+  box-shadow: 0 .25rem 1rem #0002;
+}
+.toast button { flex: none; margin-inline-start: auto; }
 .warning { background: #fff4de; color: #684212; border: 1px solid #ecce8f; padding: .5rem .625rem; border-radius: var(--radius); }
 .table-panel { padding: 0; overflow-x: auto; }
 .table-panel:focus-visible { outline-offset: -3px; }

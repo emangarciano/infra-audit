@@ -17,9 +17,12 @@
     </div>
   </header>
   <main id="main" class="workspace" tabindex="-1">
-    <div id="notice" class="notice" role="status" hidden></div>
     <div id="screen"><p>Loading the audit register…</p></div>
   </main>
+  <div id="toast" class="notice toast" hidden>
+    <div id="notice" role="status"></div>
+    <button id="close-toast" type="button" aria-label="Dismiss notification">×</button>
+  </div>
   <dialog id="action-dialog" aria-labelledby="dialog-title"></dialog>
 </body>
 </html>

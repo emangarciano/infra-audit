@@ -1,6 +1,7 @@
 import { parsePesoAmount } from './peso-amount.js';
 
 const screen = document.querySelector('#screen');
+const toast = document.querySelector('#toast');
 const notice = document.querySelector('#notice');
 const navigation = document.querySelector('#navigation');
 const account = document.querySelector('#account');
@@ -26,6 +27,7 @@ const fieldLabels = {
 let user;
 let lookups;
 let navigationVersion = 0;
+let noticeTimer;
 
 const today = () => manilaDate.format(new Date());
 const isAuditRole = () => ['auditor', 'supervisor'].includes(user?.role);
@@ -35,9 +37,11 @@ const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (character) =>
 })[character]);
 
 function showNotice(message, isError = false, latestLink) {
+  clearTimeout(noticeTimer);
+  toast.hidden = !message;
+  toast.classList.toggle('error', isError);
   notice.textContent = message;
-  notice.classList.toggle('error', isError);
-  notice.hidden = !message;
+  if (message) noticeTimer = setTimeout(() => showNotice(''), 10_000);
   if (latestLink) {
     const review = document.createElement('a');
     review.href = latestLink;
@@ -47,6 +51,8 @@ function showNotice(message, isError = false, latestLink) {
     notice.append(review);
   }
 }
+
+document.querySelector('#close-toast').addEventListener('click', () => showNotice(''));
 
 async function api(path, method = 'GET', body) {
   let response;
