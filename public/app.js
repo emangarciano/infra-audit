@@ -183,18 +183,16 @@ function displayQueue(rows) {
   const projectOptions = lookups.projects.map(({ id, title, reference }) => [id, projectLabel(title, reference)]);
   const auditorOptions = lookups.auditors.map(({ id, display_name }) => [id, display_name]);
   mount(`${heading('Transaction queue', '<a class="button primary" href="#new-transaction">New transaction</a>')}
-    <form id="filters" class="panel">
-      <div class="grid filter-grid">
-        ${field('Search', 'q', filters.q, 'placeholder="Project or transaction reference" maxlength="200"', 'search')}
-        ${select('Status', 'status', [['', 'All statuses'], ...lookups.statuses.map((value) => [value, value])], filters.status)}
-        ${select('Type', 'type', [['', 'All types'], ...Object.entries(lookups.types)], filters.type)}
-        ${select('Project', 'project_id', [['', 'All projects'], ...projectOptions], filters.project_id)}
-        ${select('Assigned auditor', 'assigned_auditor_id', [['', 'All auditors'], ...auditorOptions], filters.assigned_auditor_id)}
-      </div>
-      <div class="actions form-actions"><button type="submit" class="primary">Search</button>
+    <form id="filters" class="panel filter-grid" aria-label="Transaction filters">
+      ${field('Search', 'q', filters.q, 'placeholder="Project or transaction reference" maxlength="200"', 'search')}
+      ${select('Status', 'status', [['', 'All statuses'], ...lookups.statuses.map((value) => [value, value])], filters.status)}
+      ${select('Type', 'type', [['', 'All types'], ...Object.entries(lookups.types)], filters.type)}
+      ${select('Project', 'project_id', [['', 'All projects'], ...projectOptions], filters.project_id)}
+      ${select('Assigned auditor', 'assigned_auditor_id', [['', 'All auditors'], ...auditorOptions], filters.assigned_auditor_id)}
+      <div class="actions"><button type="submit" class="primary">Search</button>
       <button type="button" id="clear-filters">Clear filters</button></div>
     </form>
-    <section class="panel table-panel" aria-label="Transaction results">
+    <section class="panel table-panel" aria-label="Transaction results"${rows.length ? ' tabindex="0"' : ''}>
       ${rows.length ? `<table><thead><tr>
         <th scope="col">Type</th><th scope="col">Project</th><th scope="col">Reference</th>
         <th scope="col">Assigned auditor</th><th scope="col">Status</th><th scope="col">Latest action date</th>
@@ -248,23 +246,25 @@ function bindProjectBrowser(container, projects, chooseProject) {
 
   function projectRows(rows) {
     displayedProjects = rows;
-    return `<div class="table-panel"><table>
+    return `<section class="table-panel project-table" aria-label="Project results" tabindex="0"><table>
       <thead><tr><th scope="col">Project name</th><th scope="col">Project reference</th><th scope="col">Contractor</th></tr></thead>
       <tbody>${rows.map((project, index) => `<tr><td>${chooseProject
-        ? `<button type="button" data-project-choice="${index}"
+        ? `<button class="link project-choice" type="button" data-project-choice="${index}"
           aria-label="${escape(projectLabel(project.title, project.reference))}, ${escape(project.contractor?.trim() || missingContractor)}">${escape(project.title)}</button>`
         : `<a href="#project/${project.id}">${escape(project.title)}</a>`}</td>
         <td>${escape(project.reference ?? '—')}</td>
         <td>${escape(project.contractor?.trim() || missingContractor)}</td></tr>`).join('')}</tbody>
-    </table></div>`;
+    </table></section>`;
   }
 
   function browse() {
     if (!projects.length) {
       results.innerHTML = '<p class="empty">No projects registered.</p>';
     } else if (selectedContractor !== undefined) {
-      results.innerHTML = `<button class="back" type="button" data-contractors>Back to contractors</button>
-        <h2 tabindex="-1">${escape(selectedContractor ?? missingContractor)}</h2>${projectRows(grouped.get(selectedContractor))}`;
+      results.innerHTML = `<div class="project-results-heading">
+        <h2 tabindex="-1">${escape(selectedContractor ?? missingContractor)}</h2>
+        <button type="button" data-contractors>Back to contractors</button>
+      </div>${projectRows(grouped.get(selectedContractor))}`;
     } else {
       results.innerHTML = `<h2 tabindex="-1">Contractors</h2><ul class="contractor-list">
         ${contractors.map((contractor, index) => `<li><button type="button" data-contractor="${index}">
@@ -601,11 +601,13 @@ function historyPanel(history, transactionId, audit = true) {
         ? event.previous_status && event.previous_status !== event.new_status
           ? `${event.previous_status} → ${event.new_status}` : event.new_status
         : '';
-      return `<li><strong>${escape(actionLabels[event.kind])}</strong>
+      return `<li><div class="history-entry">
+        <strong>${escape(actionLabels[event.kind])}</strong>
         <div class="history-context"><span>${escape(event.actor_name)}</span>
-        <span>Action date ${escape(event.actual_on)}</span>
-        <span>Recorded ${escape(manilaTime.format(new Date(event.recorded_at)))} PHT</span>
-        ${status ? `<span>${escape(status)}</span>` : ''}</div>
+          <span>Action date ${escape(event.actual_on)}</span>
+          <span>Recorded ${escape(manilaTime.format(new Date(event.recorded_at)))} PHT</span>
+          ${status ? `<span>${escape(status)}</span>` : ''}</div>
+        </div>
         ${details.remarks ? `<p>${escape(details.remarks)}</p>` : ''}
         ${details.justification ? `<p><strong>Justification</strong> ${escape(details.justification)}</p>` : ''}
         ${details.figures ? copyField('Certified amount in figures', details.figures) + copyField('Certified amount in words', details.words) : ''}
@@ -656,7 +658,7 @@ function displayTransaction(record, documentDrafts = new Map()) {
     </dl>${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}</section>`;
   const checklist = audit ? checklistPanel(record.checklist, editable, record.type, documentDrafts) : '';
   mount(`<a class="back" href="#queue">Transaction queue</a>${heading(record.reference, transactionActions(record), lookups.types[record.type])}
-    ${editable && record.type === 'bac' ? checklist + summary : summary + checklist}
+    ${summary}${checklist}
     ${editable ? `<section class="panel"><h2>Transaction details</h2><form id="transaction-details" class="stack">
       <div class="grid">
         ${field('Reference or title', 'reference', record.reference, 'required maxlength="200"')}
@@ -664,6 +666,7 @@ function displayTransaction(record, documentDrafts = new Map()) {
         ${field('Received or created date', 'received_on', record.received_on, 'required', 'date')}
         ${field('Action date', 'actual_on', today(), 'required', 'date')}
       </div>${remarks('Notes', 'notes', record.notes, 2500)}
+      <div class="notice error" role="alert" tabindex="-1" hidden></div>
       <div class="actions"><button class="primary" type="submit">Save transaction details</button></div></form></section>` : ''}
     ${historyPanel(record.history, record.id, audit)}`);
   if (editable) {
@@ -716,11 +719,12 @@ function displayTransaction(record, documentDrafts = new Map()) {
       showNotice('Checklist saved.');
     }, { localError: checklistError, conflict: link });
     submit(detailsForm, async (body) => {
+      showNotice('');
       const updated = await saveTransactionForm(`/transactions/${record.id}`, body);
       if (!detailsForm.isConnected) return;
       refreshTransaction(updated, checklistDirty ? checklistForm : null, documentDrafts);
       showNotice('Transaction details saved.');
-    }, { conflict: link });
+    }, { localError: detailsForm.querySelector('.notice'), conflict: link });
     actionButtons.forEach((button) => button.addEventListener('click', () => {
       if (checklistDirty || detailsDirty) {
         showNotice('Save your checklist and detail edits before recording an action.', true);
