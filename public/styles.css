@@ -135,6 +135,7 @@ button:disabled { cursor: wait; opacity: .65; }
   text-align: start; overflow-wrap: anywhere;
 }
 .contractor-list button:focus-visible { outline-offset: -3px; }
+#contractor-picker .contractor-list button[aria-current] { background: var(--line); }
 table { border-collapse: collapse; width: 100%; text-align: left; }
 th, td { padding: .3125rem .625rem; vertical-align: top; border-bottom: 1px solid var(--line); }
 th { color: #415955; font-size: .8125rem; background: #e8f0ed; white-space: nowrap; }
@@ -232,7 +233,7 @@ dialog form { margin-top: .5rem; }
 dialog .notice { margin: 0; }
 #project-picker [data-project-browser] { border: 0; margin: 0; padding: 0; }
 .project-field { display: grid; justify-items: start; align-content: start; gap: .32rem; overflow-wrap: anywhere; }
-#project-selection-error { color: var(--danger); }
+#project-selection-error, #contractor-selection-error { color: var(--danger); }
 .slip-items { margin: 0; padding-left: 1.5rem; }
 .slip-items li + li { margin-top: .65rem; }
 .slip-items textarea { height: 2.5rem; min-height: 2.5rem; }
