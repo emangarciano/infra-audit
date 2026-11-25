@@ -72,6 +72,9 @@ nav a:focus-visible { outline-offset: -3px; }
 .stack, .grid { display: grid; gap: .5rem .75rem; }
 .stack { grid-template-columns: minmax(0, 1fr); }
 .grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); align-items: start; }
+@media (min-width: 48rem) {
+  .project-details-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: .375rem; }
 .form-actions { margin-top: .625rem; }
 .form-actions:empty { display: none; }

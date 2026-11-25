@@ -530,12 +530,11 @@ function bindContractorPicker(form) {
 
 function projectFields(record = {}, creating = false) {
   const required = creating ? 'required' : '';
-  return `${field('Project name', 'title', record.title, 'required maxlength="200"')}
-    ${field('Project reference', 'reference', record.reference, `maxlength="200" ${required}`)}
+  const name = field('Project name', 'title', record.title, 'required maxlength="200"');
+  const reference = field('Project reference', 'reference', record.reference, `maxlength="200" ${required}`);
+  return `${(creating ? [name, reference] : [reference, name]).join('')}
     ${contractorPicker(record, creating)}
-    ${field('Contract amount (₱)', 'contract_amount', record.contract_amount, `${pesoAmountAttributes} ${required}`)}
-    ${!creating && isAuditRole() ? `${field('Contract date', 'contract_date', record.contract_date, '', 'date')}
-    ${field('Contract duration', 'contract_duration', record.contract_duration, 'maxlength="100"')}` : ''}`;
+    ${field('Contract amount (₱)', 'contract_amount', record.contract_amount, `${pesoAmountAttributes} ${required}`)}`;
 }
 
 function displayNewProject() {
@@ -636,7 +635,7 @@ function displayProject(record) {
   }
   mount(`<a class="back" href="#projects">Projects</a>${heading(projectLabel(record.title, record.reference))}
     ${isAuditRole() ? `<form id="project-form" class="panel"><h2>Project details</h2>
-      <div class="grid">${projectFields(record)}${field('Action date', 'actual_on', today(), 'required', 'date')}</div>
+      <div class="grid project-details-grid"><div class="stack">${projectFields(record)}</div></div>
       <div class="actions form-actions"><button class="primary" type="submit">Save project details</button></div>
       <div class="notice error form-actions" role="alert" tabindex="-1" hidden></div></form>` : ''}
     ${projectTransactions(record.id, record.transactions)}`);
