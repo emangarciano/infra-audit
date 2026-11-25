@@ -109,7 +109,7 @@ export async function lookups(client) {
 export async function listProjects(client, query) {
   const search = text(query, 'Search', 200);
   const result = await client.query(`
-    SELECT p.id, p.title, p.reference, p.contractor
+    SELECT p.id, p.title, p.reference, p.contractor, p.contract_amount
     FROM projects p
     WHERE $1::text IS NULL
       OR strpos(lower(p.title), lower($1)) > 0

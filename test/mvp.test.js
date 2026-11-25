@@ -144,7 +144,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     }, intake), 201);
     const search = (query) => success(`/projects?${new URLSearchParams({ q: query })}`, { cookie: intake });
     assert.deepEqual(await search('  OrTh Bri  '), [{
-      id: north.id, title: 'North bridge', reference: 'CAP-N100', contractor: 'North Builders',
+      id: north.id, title: 'North bridge', reference: 'CAP-N100', contractor: 'North Builders', contract_amount: '100.00',
     }]);
     assert.deepEqual((await search('s200')).map(({ id }) => id), [south.id]);
     assert.deepEqual(await search('South Builders'), []);
@@ -382,7 +382,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
         assert.equal(existingTransaction.project_id, id);
         assert.equal(existingTransaction.obligation_request_reference, null);
         const matches = await (await send('/projects?q=old%20bri', undefined, cookie)).json();
-        assert.deepEqual(matches, [{ id, title: 'Old bridge', reference: null, contractor: null }]);
+        assert.deepEqual(matches, [{ id, title: 'Old bridge', reference: null, contractor: null, contract_amount: null }]);
         assert.equal(existingTransaction.status, 'Under Audit');
         assert.equal(existingTransaction.history[0].new_status, 'Under Audit');
         assert.equal(existingTransaction.history[0].actor_name, 'Legacy Auditor');

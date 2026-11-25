@@ -3,6 +3,7 @@ import { parsePesoAmount } from './peso-amount.js';
 const screen = document.querySelector('#screen');
 const toast = document.querySelector('#toast');
 const notice = document.querySelector('#notice');
+const toastStatus = document.querySelector('#toast-status');
 const navigation = document.querySelector('#navigation');
 const account = document.querySelector('#account');
 const dialog = document.querySelector('#action-dialog');
@@ -10,6 +11,7 @@ const manilaDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Manila' })
 const manilaTime = new Intl.DateTimeFormat('en-PH', {
   dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Manila',
 });
+const pesoCurrency = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
 const roleNames = {
   intake: 'Administrative staff', auditor: 'Auditor', supervisor: 'Supervisor', 'system-admin': 'System administrator',
 };
@@ -41,6 +43,7 @@ function showNotice(message, isError = false, latestLink) {
   toast.hidden = !message;
   toast.classList.toggle('error', isError);
   notice.textContent = message;
+  toastStatus.textContent = message;
   if (message) noticeTimer = setTimeout(() => showNotice(''), 10_000);
   if (latestLink) {
     const review = document.createElement('a');
@@ -207,15 +210,21 @@ function projectLabel(name, reference) {
   return reference ? `${name} (${reference})` : name;
 }
 
-function projectBrowser() {
+function projectBrowser(inPicker = false) {
   return `<section class="panel stack" aria-label="Project register" data-project-browser>
-    ${field('Search projects', 'project_search', '', 'placeholder="Name, project reference or obligation request"', 'search')}
+    ${inPicker ? field('Search projects', 'project_search', '', 'placeholder="Name, project reference or obligation request"', 'search')
+      : `<div class="project-browser-toolbar">
+        <label class="project-search">Search: <input name="project_search" type="search" placeholder="Project name, ..."></label>
+        <button type="button" data-contractors aria-label="Back to contractors" hidden>← Back</button>
+      </div>`}
     <div data-project-results aria-live="polite"></div>
   </section>`;
 }
 
 function bindProjectBrowser(container, projects, chooseProject) {
   const input = container.querySelector('[name="project_search"]');
+  const searchLabel = input.closest('label');
+  const back = container.querySelector('[data-contractors]');
   const results = container.querySelector('[data-project-results]');
   const missingContractor = 'No contractor recorded';
   const grouped = new Map();
@@ -238,23 +247,31 @@ function bindProjectBrowser(container, projects, chooseProject) {
   function projectRows(rows) {
     displayedProjects = rows;
     return `<section class="table-panel project-table" aria-label="Project results" tabindex="0"><table>
-      <thead><tr><th scope="col">Project name</th><th scope="col">Project reference</th><th scope="col">Contractor</th></tr></thead>
-      <tbody>${rows.map((project, index) => `<tr><td>${chooseProject
-        ? `<button class="link project-choice" type="button" data-project-choice="${index}"
-          aria-label="${escape(projectLabel(project.title, project.reference))}, ${escape(project.contractor?.trim() || missingContractor)}">${escape(project.title)}</button>`
-        : `<a href="#project/${project.id}">${escape(project.title)}</a>`}</td>
-        <td>${escape(project.reference ?? '—')}</td>
-        <td>${escape(project.contractor?.trim() || missingContractor)}</td></tr>`).join('')}</tbody>
+      <thead><tr>${chooseProject
+        ? '<th scope="col">Project name</th><th scope="col">Project reference</th><th scope="col">Contractor</th>'
+        : '<th scope="col">Ref</th><th scope="col">Name</th><th scope="col" class="project-amount">Amount</th>'}</tr></thead>
+      <tbody>${rows.map((project, index) => chooseProject
+        ? `<tr><td><button class="link project-choice" type="button" data-project-choice="${index}"
+          aria-label="${escape(projectLabel(project.title, project.reference))}, ${escape(project.contractor?.trim() || missingContractor)}">${escape(project.title)}</button></td>
+          <td>${escape(project.reference ?? '—')}</td><td>${escape(project.contractor?.trim() || missingContractor)}</td></tr>`
+        : `<tr class="project-row"><td>${escape(project.reference ?? '—')}</td>
+          <td><a class="project-link" href="#project/${project.id}">${escape(project.title)}</a></td>
+          <td class="project-amount">${project.contract_amount == null ? '—' : pesoCurrency.format(project.contract_amount)}</td></tr>`).join('')}</tbody>
     </table></section>`;
   }
 
   function browse() {
+    const browsingContractor = selectedContractor !== undefined;
+    if (back) {
+      searchLabel.hidden = browsingContractor;
+      back.hidden = !browsingContractor;
+    }
     if (!projects.length) {
       results.innerHTML = '<p class="empty">No projects registered.</p>';
-    } else if (selectedContractor !== undefined) {
+    } else if (browsingContractor) {
       results.innerHTML = `<div class="project-results-heading">
         <h2 tabindex="-1">${escape(selectedContractor ?? missingContractor)}</h2>
-        <button type="button" data-contractors>Back to contractors</button>
+        ${back ? '' : '<button type="button" data-contractors>Back to contractors</button>'}
       </div>${projectRows(grouped.get(selectedContractor))}`;
     } else {
       results.innerHTML = `<h2 tabindex="-1">Contractors</h2><ul class="contractor-list">
@@ -264,7 +281,7 @@ function bindProjectBrowser(container, projects, chooseProject) {
     }
   }
 
-  results.addEventListener('click', (event) => {
+  container.addEventListener('click', (event) => {
     const choice = event.target.closest('[data-project-choice]');
     if (choice) {
       chooseProject(displayedProjects[Number(choice.dataset.projectChoice)]);
@@ -274,7 +291,8 @@ function bindProjectBrowser(container, projects, chooseProject) {
     if (!contractor && !event.target.closest('[data-contractors]')) return;
     selectedContractor = contractor ? contractors[Number(contractor.dataset.contractor)] : undefined;
     browse();
-    results.querySelector('h2')?.focus();
+    if (back) (contractor ? back : input).focus();
+    else results.querySelector('h2')?.focus();
   });
   input.addEventListener('input', () => {
     const version = ++searchVersion;
@@ -302,7 +320,10 @@ function bindProjectBrowser(container, projects, chooseProject) {
 }
 
 function displayProjects(projects) {
-  mount(`${heading('Projects', '<a class="button primary" href="#new-project">New project</a>')}
+  mount(`<div class="page-heading projects-heading">
+      <h1 tabindex="-1">Projects</h1>
+      <a class="button primary" href="#new-project">New Project</a>
+    </div>
     ${projectBrowser()}`);
   bindProjectBrowser(screen.querySelector('[data-project-browser]'), projects);
 }
@@ -367,7 +388,7 @@ function displayNewTransaction(projectId) {
   const pickerDialog = screen.querySelector('#project-picker');
   picker.addEventListener('click', () => {
     pickerDialog.innerHTML = `<div class="stack"><h2 id="project-picker-title">Choose project</h2>
-      ${projectBrowser()}<div class="actions"><button type="button" data-cancel-pick>Cancel</button></div></div>`;
+      ${projectBrowser(true)}<div class="actions"><button type="button" data-cancel-pick>Cancel</button></div></div>`;
     bindProjectBrowser(pickerDialog.querySelector('[data-project-browser]'), projects, (project) => {
       form.elements.project_id.value = project.id;
       selection.textContent = projectLabel(project.title, project.reference);
@@ -401,7 +422,8 @@ function displayProject(record) {
     `<a class="button primary" href="#new-transaction/${record.id}">New transaction</a>`)}
     ${isAuditRole() ? `<form id="project-form" class="panel"><h2>Project details</h2>
       <div class="grid">${projectFields(record)}${field('Action date', 'actual_on', today(), 'required', 'date')}</div>
-      <div class="actions form-actions"><button class="primary" type="submit">Save project details</button></div></form>` : ''}
+      <div class="actions form-actions"><button class="primary" type="submit">Save project details</button></div>
+      <div class="notice error form-actions" role="alert" tabindex="-1" hidden></div></form>` : ''}
     ${projectTransactions(record.transactions)}`);
   const form = screen.querySelector('#project-form');
   if (form) submit(form, async (body) => {
@@ -410,7 +432,7 @@ function displayProject(record) {
     if (version !== navigationVersion) return;
     displayProject(updated);
     showNotice('Project details saved.');
-  }, { conflict: `#project/${record.id}` });
+  }, { localError: form.querySelector('.notice'), conflict: `#project/${record.id}` });
 }
 
 const checklistStateLabels = { 'N/A': 'N/A', Checked: 'Complied', Unchecked: 'Not Complied' };
@@ -792,7 +814,7 @@ function openAction(record, action, label) {
       link.rel = 'noopener';
       link.textContent = 'Open printable suspension slip';
       notice.append(link);
-      link.focus();
+      screen.querySelector(`a[href="${link.getAttribute('href')}"]`)?.focus();
     }
   }, { localError, conflict: `#transaction/${record.id}` });
   dialog.showModal();
