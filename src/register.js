@@ -318,7 +318,11 @@ export async function readTransaction(client, user, transactionId) {
   `, [transactionId, audit, movementKinds]);
   const history = result.rows.map((row) => visibleEvent(row, audit));
   if (!audit) {
-    return { ...summary(record), revision: record.revision, history };
+    const { rows: [counts] } = await client.query(`
+      SELECT count(*)::int AS items_needing_compliance FROM checklist_items
+      WHERE transaction_id = $1 AND state = 'Unchecked'
+    `, [transactionId]);
+    return { ...summary(record), revision: record.revision, history, ...counts };
   }
   const items = await checklist(client, transactionId);
   const orderedItems = record.type === 'bac' ? groupBacChecklist(items) : items;

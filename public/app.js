@@ -31,6 +31,7 @@ let user;
 let lookups;
 let navigationVersion = 0;
 let noticeTimer;
+let checklistNameObserver;
 
 const today = () => manilaDate.format(new Date());
 const isAuditRole = () => ['auditor', 'supervisor'].includes(user?.role);
@@ -128,6 +129,7 @@ function badge(status, voided = false) {
 }
 
 function mount(markup, focus = true) {
+  checklistNameObserver?.disconnect();
   screen.innerHTML = markup;
   if (focus) screen.querySelector('h1')?.focus();
 }
@@ -660,6 +662,15 @@ const bacGroupLabels = {
   preparation: 'Procurement preparation', evaluation: 'Procurement evaluation', award: 'Award',
   financial: 'Financial proposal', technical: 'Technical proposal', others: 'Others',
 };
+const shortChecklistNames = new Map([
+  ['Construction Safety and Health Program approved by DOLE', 'CSHP received by DOLE'],
+  ["List of Contractor's Key Personnel to be assigned to the Contract to be bid", "List of Contractor's Key Personnel"],
+]);
+
+function checklistDocumentName(item) {
+  if (item.custom || !item.checklist_group) return item.label;
+  return shortChecklistNames.get(item.label.replaceAll('’', "'")) ?? item.label;
+}
 
 function documentFieldValue(value) {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
@@ -688,28 +699,22 @@ function checklistRow(item, editable, draft) {
   const name = `requirement-${item.id}`;
   const notApplicable = item.state === 'N/A';
   const complied = item.state === 'Checked';
-  const controls = editable ? `<div class="checklist-choices">
-      <label><input type="checkbox" name="not_applicable_${item.id}" value="N/A" aria-describedby="${name}"${notApplicable ? ' checked' : ''}> N/A</label>
-      <label><input type="checkbox" name="complied_${item.id}" value="Checked" aria-describedby="${name}"${complied ? ' checked' : ''}${notApplicable ? ' disabled' : ''}>
-        <span class="compliance-label">${complianceLabel(notApplicable, complied)}</span></label>
-      <button type="button" class="checklist-details" data-document="${item.id}" aria-haspopup="dialog"
-        aria-label="Add details" aria-describedby="${name}">+</button>
-    </div>` : `<span class="checklist-choices">${checklistStateLabels[item.state]}</span>`;
-  return `<li class="checklist-row" data-state="${escape(item.state)}">
-    <div class="requirement-controls">
-      <span id="${name}" class="requirement-name">${escape(item.label)}${item.custom ? ' <span class="muted">(custom)</span>' : ''}</span>
-      ${controls}
-    </div>
-    <div class="document-badges">${documentBadges(item, draft ?? item)}</div>
-  </li>`;
+  return `<tr class="checklist-row" data-state="${escape(item.state)}">
+    <td class="checklist-choice"><input type="checkbox" name="not_applicable_${item.id}" value="N/A" aria-label="N/A"
+      aria-describedby="${name}"${notApplicable ? ' checked' : ''}${editable ? '' : ' disabled'}></td>
+    <td class="checklist-choice"><input type="checkbox" name="complied_${item.id}" value="Checked" aria-label="OK"
+      aria-describedby="${name}"${complied ? ' checked' : ''}${notApplicable || !editable ? ' disabled' : ''}></td>
+    <th scope="row"><span id="${name}" class="requirement-name">
+      <span>${escape(checklistDocumentName(item))}${item.custom ? ' <span class="muted">(custom)</span>' : ''}</span>
+    </span></th>
+    <td><div class="document-badges">${documentBadges(item, draft ?? item)}</div></td>
+    ${editable ? `<td class="checklist-add-details"><button type="button" class="checklist-details" data-document="${item.id}" aria-haspopup="dialog"
+      aria-label="Add details" aria-describedby="${name}">+</button></td>` : ''}
+  </tr>`;
 }
 
 function checklistState(notApplicable, complied) {
   return notApplicable ? 'N/A' : complied ? 'Checked' : 'Unchecked';
-}
-
-function complianceLabel(notApplicable, complied) {
-  return checklistStateLabels[notApplicable || complied ? 'Checked' : 'Unchecked'];
 }
 
 function syncChecklistRow(row) {
@@ -718,14 +723,18 @@ function syncChecklistRow(row) {
   compliance.disabled = notApplicable;
   if (notApplicable) compliance.checked = false;
   row.dataset.state = checklistState(notApplicable, compliance.checked);
-  row.querySelector('.compliance-label').textContent = complianceLabel(notApplicable, compliance.checked);
 }
 
 function checklistRows(items, editable, type, documentDrafts) {
   if (!items.length) return '<p class="muted">No requirements have been recorded.</p>';
-  const list = (rows) => `<ul class="checklist-rows" role="list">${rows.map((item) =>
-    checklistRow(item, editable, documentDrafts.get(item.id))).join('')}</ul>`;
-  if (type !== 'bac') return list(items);
+  const table = (rows) => `<table class="checklist-table">
+    <colgroup><col span="2" class="checklist-choice-column"><col class="checklist-name-column"></colgroup>
+    <colgroup><col>${editable ? '<col class="checklist-add-column">' : ''}</colgroup>
+    <thead><tr><th scope="col" class="checklist-choice">N/A</th><th scope="col" class="checklist-choice">OK</th>
+      <th scope="col">Document</th><th scope="${editable ? 'colgroup' : 'col'}" colspan="${editable ? 2 : 1}">Details</th></tr></thead>
+    <tbody>${rows.map((item) => checklistRow(item, editable, documentDrafts.get(item.id))).join('')}</tbody>
+  </table>`;
+  if (type !== 'bac') return table(items);
   const grouped = new Map(Object.keys(bacGroupLabels).map((group) => [group, []]));
   for (const item of items) {
     const rows = grouped.get(item.checklist_group) ?? grouped.get('others');
@@ -735,13 +744,13 @@ function checklistRows(items, editable, type, documentDrafts) {
     const rows = grouped.get(group);
     if (!rows.length) return '';
     return `<section class="checklist-group" data-group="${group}" aria-labelledby="checklist-${group}">
-      <h3 id="checklist-${group}">${title}</h3>${list(rows)}
+      <h3 id="checklist-${group}">${title}</h3>${table(rows)}
     </section>`;
   });
   return `<div class="checklist-groups">${groups.join('')}</div>`;
 }
 
-function checklistPanel(items, editable, type, documentDrafts) {
+function checklistPanel(items, editable, type, documentDrafts, open) {
   const rows = checklistRows(items, editable, type, documentDrafts);
   const contents = editable
     ? `<form id="checklist-form">
@@ -754,12 +763,30 @@ function checklistPanel(items, editable, type, documentDrafts) {
       <div class="actions form-actions"><button class="primary" type="submit">Save checklist</button></div>
     </form>
     <dialog id="document-dialog" aria-labelledby="document-dialog-title"></dialog>` : rows;
-  return `<section class="panel" aria-labelledby="checklist-title">
-    <h2 id="checklist-title">Requirement checklist</h2>${contents}</section>`;
+  return `<details id="requirements-checklist" class="panel"${open ? ' open' : ''}>
+    <summary>Requirements checklist</summary><div class="checklist-content">${contents}</div></details>`;
+}
+
+function fitChecklistNames(contents) {
+  const names = [...contents.querySelectorAll('.requirement-name')];
+  let previousWidth;
+  checklistNameObserver = new ResizeObserver(([entry]) => {
+    const { width } = entry.contentRect;
+    if (width === previousWidth) return;
+    previousWidth = width;
+    if (!width) return;
+    requestAnimationFrame(() => {
+      if (!contents.isConnected) return;
+      names.forEach((name) => name.classList.remove('compact'));
+      const wrapped = names.filter((name) => name.firstElementChild.getClientRects().length > 1);
+      wrapped.forEach((name) => name.classList.add('compact'));
+    });
+  });
+  checklistNameObserver.observe(contents);
 }
 
 function openDocumentDetails(modal, item, draft, trigger, confirm) {
-  modal.innerHTML = `<h2 id="document-dialog-title">${escape(item.label)}</h2>
+  modal.innerHTML = `<h2 id="document-dialog-title">${escape(checklistDocumentName(item))}</h2>
     <form class="stack">
       ${item.field_definitions.length ? `<div class="grid">${documentFields({ ...item, ...draft })}</div>` : ''}
       ${remarks('Remarks (optional)', 'remarks', draft.remarks)}
@@ -858,7 +885,8 @@ function transactionActions(record) {
 
 function refreshTransaction(record, draftForm, documentDrafts) {
   const draft = draftForm ? new FormData(draftForm) : null;
-  displayTransaction(record, documentDrafts);
+  const checklistOpen = screen.querySelector('#requirements-checklist')?.open;
+  displayTransaction(record, documentDrafts, checklistOpen);
   if (!draft) return;
   const form = document.getElementById(draftForm.id);
   for (const control of form.elements) {
@@ -869,21 +897,21 @@ function refreshTransaction(record, draftForm, documentDrafts) {
   form.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-function displayTransaction(record, documentDrafts = new Map()) {
+function displayTransaction(record, documentDrafts = new Map(), checklistOpen = true) {
   const audit = isAuditRole();
   const editable = audit && !record.voided;
   const link = `#transaction/${record.id}`;
   let checklistDirty = false;
+  const itemsNeedingCompliance = audit ? uncheckedRequirements(record).length : record.items_needing_compliance;
   const summary = `<section class="panel"><h2>Transaction summary</h2><dl class="definition-grid">
-      <div><dt>Project</dt><dd><a href="#project/${record.project_id}">${escape(projectLabel(record.project, record.project_reference))}</a></dd></div>
       ${record.obligation_request_reference ? `<div><dt>Obligation request reference</dt><dd>${escape(record.obligation_request_reference)}</dd></div>` : ''}
       <div><dt>Assigned auditor</dt><dd>${escape(record.assigned_auditor)}</dd></div>
       <div><dt>Status</dt><dd>${badge(record.status, record.voided)}</dd></div>
-      <div><dt>Received or created</dt><dd>${escape(record.received_on)}</dd></div>
-      <div><dt>Latest action date</dt><dd>${escape(record.latest_action_on)}</dd></div>
+      <div aria-live="polite" aria-atomic="true"><dt>Items needing compliance:</dt><dd id="compliance-count">${itemsNeedingCompliance}</dd></div>
     </dl>${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}</section>`;
-  const checklist = audit ? checklistPanel(record.checklist, editable, record.type, documentDrafts) : '';
-  mount(`<a class="back" href="#project/${record.project_id}">Back to project</a>${heading(record.reference, transactionActions(record), lookups.types[record.type])}
+  const checklist = audit ? checklistPanel(record.checklist, editable, record.type, documentDrafts, checklistOpen) : '';
+  const subtitle = `${lookups.types[record.type]} · ${record.reference}`;
+  mount(`<a class="back" href="#project/${record.project_id}">Back to project</a>${heading(record.project, transactionActions(record), subtitle)}
     ${summary}${checklist}
     ${editable ? `<section class="panel"><h2>Transaction details</h2><form id="transaction-details" class="stack">
       <div class="grid">
@@ -895,17 +923,21 @@ function displayTransaction(record, documentDrafts = new Map()) {
       <div class="notice error" role="alert" tabindex="-1" hidden></div>
       <div class="actions"><button class="primary" type="submit">Save transaction details</button></div></form></section>` : ''}
     ${historyPanel(record.history, record.id, audit)}`);
+  if (audit) fitChecklistNames(screen.querySelector('.checklist-content'));
   if (editable) {
     const checklistForm = screen.querySelector('#checklist-form');
     const detailsForm = screen.querySelector('#transaction-details');
     const checklistError = checklistForm.querySelector('.notice');
     const documentDialog = screen.querySelector('#document-dialog');
     const actionButtons = screen.querySelectorAll('[data-action]');
+    const complianceCount = screen.querySelector('#compliance-count');
     let detailsDirty = false;
     checklistForm.addEventListener('input', (event) => {
       checklistDirty = true;
       const row = event.target.closest('.checklist-row');
       if (row) syncChecklistRow(row);
+      const count = String(checklistForm.querySelectorAll('.checklist-row[data-state="Unchecked"]').length);
+      if (complianceCount.textContent !== count) complianceCount.textContent = count;
     });
     detailsForm.addEventListener('input', () => { detailsDirty = true; });
     checklistForm.addEventListener('click', (event) => {
@@ -939,7 +971,10 @@ function displayTransaction(record, documentDrafts = new Map()) {
         ...documentDrafts.get(item.id),
       }));
       const updated = await saveTransactionForm(`/transactions/${record.id}/checklist`,
-        { items, new_label: body.new_label, actual_on: body.actual_on });
+        { items, new_label: body.new_label, actual_on: body.actual_on }).catch((error) => {
+        checklistForm.closest('details').open = true;
+        throw error;
+      });
       if (!checklistForm.isConnected) return;
       refreshTransaction(updated, detailsDirty ? detailsForm : null);
       showNotice('Checklist saved.');
@@ -964,8 +999,12 @@ function displayTransaction(record, documentDrafts = new Map()) {
   }
 }
 
+function uncheckedRequirements(record) {
+  return record.checklist?.filter((item) => item.state === 'Unchecked') ?? [];
+}
+
 function openAction(record, action, label) {
-  const unchecked = record.checklist?.filter((item) => item.state === 'Unchecked') ?? [];
+  const unchecked = uncheckedRequirements(record);
   const suspend = action === 'suspend';
   const certify = action === 'certify';
   if (suspend && !unchecked.length) {
@@ -1020,7 +1059,7 @@ function openAction(record, action, label) {
     if (suspend) request.item_remarks = Object.fromEntries(unchecked.map(({ id }) => [id, body[`item_${id}`]]));
     const result = await api(`/transactions/${record.id}/actions/${action}`, 'POST', request);
     dialog.close();
-    displayTransaction(result.record);
+    refreshTransaction(result.record);
     showNotice(`${actionLabels[action]}.`);
     if (suspend) {
       const link = document.createElement('a');

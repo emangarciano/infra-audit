@@ -462,6 +462,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal((await success(txPath(), { cookie: otherAuditor })).checklist.length, 2);
     const summary = await success(txPath(), { cookie: intake });
     assert.equal(summary.checklist, undefined);
+    assert.equal(summary.items_needing_compliance, 2);
     assert.equal(summary.history[0].details, undefined);
     assert.equal((await request(`${txPath()}/checklist`, patch({ revision: summary.revision }, intake))).status, 403);
     const current = await success(`/projects/${project.id}`, { cookie: supervisor });
@@ -507,6 +508,9 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal(record.latest_action_on, '2026-11-10');
     const custom = record.checklist.find((item) => item.custom);
     assert.equal(custom.state, 'Unchecked');
+    const summary = await success(txPath(), { cookie: intake });
+    assert.equal(summary.items_needing_compliance, 1);
+    assert.equal(summary.checklist, undefined);
     const event = await act('suspend', otherAuditor, {
       actual_on: '2026-11-08', item_remarks: { [custom.id]: 'Development fixture reason' },
     });
