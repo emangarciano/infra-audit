@@ -322,7 +322,7 @@ function projectFields(record = {}, creating = false) {
     ${field('Project reference', 'reference', record.reference, `maxlength="200" ${required}`)}
     ${field('Contractor', 'contractor', record.contractor, `maxlength="200" ${required}`)}
     ${field('Contract amount (₱)', 'contract_amount', record.contract_amount, `inputmode="decimal" maxlength="23" ${required}`)}
-    ${isAuditRole() ? `${field('Contract date', 'contract_date', record.contract_date, '', 'date')}
+    ${!creating && isAuditRole() ? `${field('Contract date', 'contract_date', record.contract_date, '', 'date')}
     ${field('Contract duration', 'contract_duration', record.contract_duration, 'maxlength="100"')}` : ''}`;
 }
 
