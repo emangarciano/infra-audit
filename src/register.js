@@ -144,18 +144,23 @@ export async function createProject(client, user, body) {
 }
 
 export async function readProject(client, user, projectId) {
-  if (user.role === 'intake') {
-    const result = await client.query(`SELECT ${projectSummaryColumns} FROM projects WHERE id = $1`, [projectId]);
-    if (!result.rowCount) throw new RequestError(404, 'Project not found.');
-    return result.rows[0];
-  }
-  const result = await client.query(`SELECT ${projectColumns} FROM projects WHERE id = $1 FOR SHARE`, [projectId]);
-  if (!result.rowCount) throw new RequestError(404, 'Project not found.');
+  const intake = user.role === 'intake';
+  const query = intake
+    ? `SELECT ${projectSummaryColumns} FROM projects WHERE id = $1`
+    : `SELECT ${projectColumns} FROM projects WHERE id = $1 FOR SHARE`;
+  const { rows: [project] } = await client.query(query, [projectId]);
+  if (!project) throw new RequestError(404, 'Project not found.');
+  const { rows } = await client.query(`
+    SELECT ${txColumns} FROM ${txTables}
+    WHERE t.project_id = $2 ORDER BY movement.id DESC
+  `, [movementKinds, projectId]);
+  const transactions = rows.map(summary);
+  if (intake) return { ...project, transactions };
   const history = await client.query(`
     SELECT ${eventColumns} FROM audit_events
     WHERE project_id = $1 AND transaction_id IS NULL ORDER BY id
   `, [projectId]);
-  return { ...result.rows[0], history: history.rows };
+  return { ...project, transactions, history: history.rows };
 }
 
 export async function correctProject(client, user, projectId, body) {

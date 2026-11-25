@@ -23,14 +23,13 @@ const fieldLabels = {
   obligation_request_reference: 'Obligation request reference',
   reference: 'Reference or title', received_on: 'Received or created date', notes: 'Transaction notes',
 };
-const filters = {};
 let user;
 let lookups;
 let navigationVersion = 0;
 
 const today = () => manilaDate.format(new Date());
 const isAuditRole = () => ['auditor', 'supervisor'].includes(user?.role);
-const route = () => location.hash.slice(1) || 'queue';
+const route = () => location.hash.slice(1) || 'projects';
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 })[character]);
@@ -98,12 +97,9 @@ function mount(markup, focus = true) {
   if (focus) screen.querySelector('h1')?.focus();
 }
 
-function updateHeader(active = '') {
-  navigation.innerHTML = user && user.role !== 'system-admin' ? [
-    ['queue', 'Transactions'], ['projects', 'Projects'],
-  ].map(([key, title]) =>
-    `<a href="#${key}"${active === key ? ' aria-current="page"' : ''}>${title}</a>`,
-  ).join('') : '';
+function updateHeader(onProjectList = false) {
+  navigation.innerHTML = user && user.role !== 'system-admin'
+    ? `<a href="#projects"${onProjectList ? ' aria-current="page"' : ''}>Projects</a>` : '';
   account.innerHTML = user
     ? `<span>${escape(user.displayName)} · ${roleNames[user.role]}</span><button id="sign-out" type="button">Sign out</button>`
     : '';
@@ -113,7 +109,6 @@ function updateHeader(active = '') {
       navigationVersion++;
       user = null;
       lookups = null;
-      Object.keys(filters).forEach((key) => delete filters[key]);
       if (dialog.open) dialog.close();
       showNotice('');
       displayLogin();
@@ -179,37 +174,27 @@ async function saveNew(path, body) {
   }
 }
 
-function displayQueue(rows) {
-  const projectOptions = lookups.projects.map(({ id, title, reference }) => [id, projectLabel(title, reference)]);
-  const auditorOptions = lookups.auditors.map(({ id, display_name }) => [id, display_name]);
-  mount(`${heading('Transaction queue', '<a class="button primary" href="#new-transaction">New transaction</a>')}
-    <form id="filters" class="panel filter-grid" aria-label="Transaction filters">
-      ${field('Search', 'q', filters.q, 'placeholder="Project or transaction reference" maxlength="200"', 'search')}
-      ${select('Status', 'status', [['', 'All statuses'], ...lookups.statuses.map((value) => [value, value])], filters.status)}
-      ${select('Type', 'type', [['', 'All types'], ...Object.entries(lookups.types)], filters.type)}
-      ${select('Project', 'project_id', [['', 'All projects'], ...projectOptions], filters.project_id)}
-      ${select('Assigned auditor', 'assigned_auditor_id', [['', 'All auditors'], ...auditorOptions], filters.assigned_auditor_id)}
-      <div class="actions"><button type="submit" class="primary">Search</button>
-      <button type="button" id="clear-filters">Clear filters</button></div>
-    </form>
-    <section class="panel table-panel" aria-label="Transaction results"${rows.length ? ' tabindex="0"' : ''}>
-      ${rows.length ? `<table><thead><tr>
-        <th scope="col">Type</th><th scope="col">Project</th><th scope="col">Reference</th>
+function transactionTable(rows, label) {
+  return `<div class="table-panel" role="region" aria-label="${label}" tabindex="0"><table><thead><tr>
+        <th scope="col">Type</th><th scope="col">Reference</th>
         <th scope="col">Assigned auditor</th><th scope="col">Status</th><th scope="col">Latest action date</th>
       </tr></thead><tbody>${rows.map((row) => `<tr class="transaction-row">
-        <td>${escape(lookups.types[row.type])}</td><td>${escape(projectLabel(row.project, row.project_reference))}</td>
+        <td>${escape(lookups.types[row.type])}</td>
         <td><a class="transaction-link" href="#transaction/${row.id}">${escape(row.reference)}</a></td><td>${escape(row.assigned_auditor)}</td>
         <td>${badge(row.status, row.voided)}</td><td>${escape(row.latest_action_on)}</td>
-      </tr>`).join('')}</tbody></table>` : '<p class="empty">No matching transactions.</p>'}
-    </section>`);
-  submit(screen.querySelector('#filters'), async (body) => {
-    Object.assign(filters, body);
-    await displayRoute();
-  });
-  screen.querySelector('#clear-filters').addEventListener('click', () => {
-    Object.keys(filters).forEach((key) => delete filters[key]);
-    void displayRoute();
-  });
+      </tr>`).join('')}</tbody></table></div>`;
+}
+
+function projectTransactions(rows) {
+  const active = rows.filter(({ voided }) => !voided);
+  const voided = rows.filter((row) => row.voided);
+  return `<section class="panel stack" aria-labelledby="project-transactions">
+    <h2 id="project-transactions">Transactions</h2>
+    ${active.length ? transactionTable(active, 'Active transactions')
+      : `<p class="empty">${voided.length ? 'No active transactions for this project.' : 'No transactions for this project.'}</p>`}
+    ${voided.length ? `<details><summary>Voided transactions (${voided.length})</summary>
+      ${transactionTable(voided, 'Voided transactions')}</details>` : ''}
+    </section>`;
 }
 
 function projectLabel(name, reference) {
@@ -344,7 +329,9 @@ function displayNewTransaction(projectId) {
   const precondition = projects.length
     ? '<p>An active auditor account is required for assignment.</p>'
     : '<p><a href="#new-project">Create a project</a> to register its first transaction.</p>';
-  mount(`<a class="back" href="#queue">Transaction queue</a>${heading('New transaction', '', user.role === 'intake' ? 'New transactions start Pending.' : 'New transactions start Under Audit.')}
+  const back = selectedProject ? `<a class="back" href="#project/${selectedProject.id}">Back to project</a>`
+    : '<a class="back" href="#projects">Projects</a>';
+  mount(`${back}${heading('New transaction', '', user.role === 'intake' ? 'New transactions start Pending.' : 'New transactions start Under Audit.')}
     ${canRegister ? `<form class="panel stack"><div class="grid">
       <div class="project-field">
         <strong>Project (required)</strong>
@@ -405,20 +392,16 @@ function displayNewTransaction(projectId) {
 
 function displayProject(record) {
   mount(`<a class="back" href="#projects">Projects</a>${heading(projectLabel(record.title, record.reference),
-    `<a class="button primary" href="#new-transaction/${record.id}">New transaction</a>
-    <button id="project-transactions" type="button">View transactions</button>`)}
+    `<a class="button primary" href="#new-transaction/${record.id}">New transaction</a>`)}
     ${isAuditRole() ? `<form id="project-form" class="panel"><h2>Project details</h2>
       <div class="grid">${projectFields(record)}${field('Action date', 'actual_on', today(), 'required', 'date')}</div>
-      <div class="actions form-actions"><button class="primary" type="submit">Save project details</button></div></form>`
-      + historyPanel(record.history) : ''}`);
-  screen.querySelector('#project-transactions').addEventListener('click', () => {
-    Object.keys(filters).forEach((key) => delete filters[key]);
-    filters.project_id = String(record.id);
-    location.hash = 'queue';
-  });
+      <div class="actions form-actions"><button class="primary" type="submit">Save project details</button></div></form>` : ''}
+    ${projectTransactions(record.transactions)}`);
   const form = screen.querySelector('#project-form');
   if (form) submit(form, async (body) => {
+    const version = navigationVersion;
     const updated = await api(`/projects/${record.id}`, 'PATCH', { ...body, revision: record.revision });
+    if (version !== navigationVersion) return;
     displayProject(updated);
     showNotice('Project details saved.');
   }, { conflict: `#project/${record.id}` });
@@ -657,7 +640,7 @@ function displayTransaction(record, documentDrafts = new Map()) {
       <div><dt>Latest action date</dt><dd>${escape(record.latest_action_on)}</dd></div>
     </dl>${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}</section>`;
   const checklist = audit ? checklistPanel(record.checklist, editable, record.type, documentDrafts) : '';
-  mount(`<a class="back" href="#queue">Transaction queue</a>${heading(record.reference, transactionActions(record), lookups.types[record.type])}
+  mount(`<a class="back" href="#project/${record.project_id}">Back to project</a>${heading(record.reference, transactionActions(record), lookups.types[record.type])}
     ${summary}${checklist}
     ${editable ? `<section class="panel"><h2>Transaction details</h2><form id="transaction-details" class="stack">
       <div class="grid">
@@ -816,7 +799,7 @@ async function displayRoute() {
     return;
   }
   const [page, id] = route().split('/');
-  updateHeader(['projects', 'project', 'new-project'].includes(page) ? 'projects' : 'queue');
+  updateHeader(page === 'projects');
   if (user.role === 'system-admin') {
     mount(`${heading('System administration')}<section class="panel"><p>Manage user accounts and database recovery using the local administrator commands.</p></section>`);
     return;
@@ -830,10 +813,7 @@ async function displayRoute() {
     const referenceData = await api('/lookups');
     if (version !== navigationVersion) return;
     lookups = referenceData;
-    if (page === 'queue') {
-      const rows = await api(`/transactions?${new URLSearchParams(filters)}`);
-      if (version === navigationVersion) displayQueue(rows);
-    } else if (page === 'new-project') displayNewProject();
+    if (page === 'new-project') displayNewProject();
     else if (page === 'new-transaction') displayNewTransaction(id);
     else if (page === 'project' || page === 'transaction') {
       const record = await api(`/${page}s/${encodeURIComponent(id ?? '')}`);
@@ -842,7 +822,7 @@ async function displayRoute() {
         else displayTransaction(record);
       }
     } else {
-      location.hash = 'queue';
+      location.hash = 'projects';
     }
   } catch (error) {
     if (version !== navigationVersion) return;

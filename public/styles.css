@@ -64,14 +64,9 @@ nav a:focus-visible { outline-offset: -3px; }
 .login h1 { margin-bottom: .25rem; }
 .login form { margin-top: .75rem; }
 .login button { justify-self: start; }
-.stack, .grid, .filter-grid { display: grid; gap: .5rem .75rem; }
+.stack, .grid { display: grid; gap: .5rem .75rem; }
 .stack { grid-template-columns: minmax(0, 1fr); }
 .grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); align-items: start; }
-.filter-grid {
-  grid-template-columns: minmax(12rem, 1.4fr) minmax(7rem, 1fr) minmax(9rem, 1fr)
-    minmax(9rem, 1.4fr) minmax(8rem, 1fr) auto;
-  align-items: end;
-}
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: .375rem; }
 .form-actions { margin-top: .625rem; }
 .form-actions:empty { display: none; }
@@ -229,7 +224,6 @@ dialog .notice { margin: 0; }
 }
 
 @media (max-width: 65rem) {
-  .filter-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); }
   .history-entry { grid-template-columns: minmax(0, 1fr); }
   .history-context { display: flex; flex-wrap: wrap; }
 }

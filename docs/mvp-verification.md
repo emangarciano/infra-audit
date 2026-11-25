@@ -4,8 +4,8 @@ Development checks ran on 24 November 2026 with Node.js 24, PostgreSQL 16, and c
 
 | Criterion | Development evidence | Office evidence pending |
 | --- | --- | --- |
-| AC-01 | Intake-assigned transactions appeared as Pending and could be found with the status filter. Auditor and supervisor registrations were self-assigned and started Under Audit. Duplicate creation required a deliberate confirmation. | |
-| AC-02 | A second auditor opened another auditor's transaction. Intake received movement metadata and was denied checklist and slip access. | |
+| AC-01 | Intake-assigned transactions appeared as Pending on their project. Auditor and supervisor registrations were self-assigned and appeared as Under Audit on their project. Duplicate creation required a deliberate confirmation. | |
+| AC-02 | A second auditor found the project by obligation request reference and opened another auditor's transaction from its list. Intake could open the restricted summary and Movement history. The API denied checklist and slip access. | |
 | AC-03 | Checked, Unchecked, N/A, and custom items worked. The suspension snapshot contained only unchecked applicable items and their remarks. The BAC checklist now loads 63 requirements from the supplied CSV and displays Complied, Not complied, and N/A. | Validate the supplied BAC list and the remaining configured requirements against PACCO's approved checklists. |
 | AC-04 | Reprinting returned the same saved HTML after checklist changes and a layout change. | Compare print wording and layout with the PACCO specimen before official pilot use. |
 | AC-05 | Resubmission preserved the checklist, explicit resumption returned the transaction to Under Audit, and repeated suspensions retained both slips. | |
@@ -22,6 +22,8 @@ Set `PACCO_TEST_DATABASE_URL` and run `npm test`. The [integration suite](../tes
 ## Browser and recovery checks
 
 A Chromium fixture run used keyboard activation for registration, checklist saving, suspension review, resubmission, explicit resumption, and certification. A second auditor found the transaction, the print view produced a PDF, and the slip retained its original content after a checklist edit. A stale save displayed a revision conflict and kept the unsaved notes visible. The certification dialog displayed a justification warning and copyable amount figures and words.
+
+Ticket 10 verification on 25 November 2026 used Chromium and disposable PostgreSQL 16. It covered contractor browsing, project search by obligation request reference, empty and populated lists, preselected project registration, returning from a transaction, retaining the list after a project correction, and opening voided records from the same project. The PostgreSQL suite reported 16 passes and zero failures.
 
 The [backup and restore procedure](../README.md#backup-and-restore) uses PostgreSQL's native client tools. For the rehearsal, the test archive contained a registered project and transaction, checklist items, and a recorded suspension with a saved slip. The replacement database contained a fixture account before restore. A safety archive was created and the restored event table contained the slip. Restored sessions were cleared.
 
