@@ -53,6 +53,7 @@ nav a:focus-visible { outline-offset: -3px; }
 }
 .page-heading > :first-child { min-width: 0; overflow-wrap: anywhere; }
 .page-heading p { margin-top: .125rem; }
+.transaction-heading h1 { font-size: .875rem; }
 .projects-heading { justify-content: flex-start; column-gap: .75rem; }
 .projects-heading h1 { border-inline-end: 1px solid var(--line); padding-inline-end: .75rem; }
 .back { display: inline-block; margin-bottom: .375rem; }
@@ -156,6 +157,7 @@ td a { font-weight: 650; }
   display: inline-block; white-space: nowrap; border-radius: var(--radius); padding: .0625rem .375rem;
   background: #e4f1ef; color: #18564c; font-size: .75rem; font-weight: 700;
 }
+.transaction-type { margin-top: .25rem; background: var(--accent); color: white; }
 .suspended { background: #fbe6d9; color: #823611; }
 .resubmitted { background: #fff0c6; color: #694810; }
 .audited { background: #dff2e4; color: #205c37; }
@@ -182,25 +184,26 @@ dd { margin: .125rem 0 0; overflow-wrap: anywhere; }
   background: color-mix(in srgb, var(--group-accent) 16%, white);
 }
 .checklist-table { table-layout: fixed; }
-.checklist-choice-column, .checklist-add-column { width: 2.25rem; }
+.checklist-choice-column { width: 2.25rem; }
 .checklist-name-column { width: 25%; }
 .checklist-table th, .checklist-table td { padding: .25rem .35rem; vertical-align: middle; }
 .checklist-table th { white-space: normal; overflow-wrap: anywhere; }
 .checklist-table tbody th { color: inherit; background: transparent; font-weight: 400; }
 .checklist-table tbody tr:last-child th { border-bottom: 0; }
-.checklist-choice, .checklist-add-details { text-align: center; }
+.checklist-choice { text-align: center; }
 .checklist-choice input {
   display: block; accent-color: var(--accent); width: 1rem; height: 1rem; min-height: 0; margin: auto; padding: 0;
 }
+.checklist-document { display: flex; align-items: center; gap: .25rem; }
 .requirement-name {
-  display: block; padding: .18rem .36rem;
+  display: block; min-width: 0; padding: .18rem .36rem;
   border-radius: .25rem; font-size: .85rem; line-height: 1.25; overflow-wrap: anywhere;
   background: #f9e6e7;
 }
 .requirement-name.compact { font-size: .75rem; }
 .checklist-row[data-state="N/A"] .requirement-name { background: #eee; }
 .checklist-row[data-state="Checked"] .requirement-name { background: #e0f2e4; }
-.checklist-details { width: 1.5rem; min-height: 1.5rem; padding: 0; line-height: 1; }
+.checklist-details { flex: none; width: 1.5rem; min-height: 1.5rem; padding: 0; line-height: 1; }
 .checklist-details:focus-visible, .checklist-choice input:focus-visible { outline-offset: 1px; }
 .document-badges { display: flex; flex-wrap: wrap; gap: .25rem .35rem; min-width: 0; }
 .document-badges .badge {
