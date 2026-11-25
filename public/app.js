@@ -709,14 +709,14 @@ function checklistRow(item, editable, draft) {
       aria-describedby="${name}"${notApplicable ? ' checked' : ''}${editable ? '' : ' disabled'}></td>
     <td class="checklist-choice"><input type="checkbox" name="complied_${item.id}" value="Checked" aria-label="OK"
       aria-describedby="${name}"${complied ? ' checked' : ''}${notApplicable || !editable ? ' disabled' : ''}></td>
-    <th scope="row" aria-labelledby="${name}"><div class="checklist-document">
-      <span id="${name}" class="requirement-name">
-        <span>${escape(checklistDocumentName(item))}${item.custom ? ' <span class="muted">(custom)</span>' : ''}</span>
-      </span>
+    <th scope="row"><span id="${name}" class="requirement-name">
+      <span>${escape(checklistDocumentName(item))}${item.custom ? ' <span class="muted">(custom)</span>' : ''}</span>
+    </span></th>
+    <td><div class="checklist-item-details">
       ${editable ? `<button type="button" class="checklist-details" data-document="${item.id}" aria-haspopup="dialog"
         aria-label="Add details" aria-describedby="${name}">+</button>` : ''}
-    </div></th>
-    <td><div class="document-badges">${documentBadges(item, draft ?? item)}</div></td>
+      <div class="document-badges">${documentBadges(item, draft ?? item)}</div>
+    </div></td>
   </tr>`;
 }
 
