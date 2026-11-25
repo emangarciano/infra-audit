@@ -123,6 +123,10 @@ function heading(title, actions = '', subtitle = '') {
   return `<div class="page-heading"><div><h1 tabindex="-1">${escape(title)}</h1>${subtitle ? `<p class="muted">${escape(subtitle)}</p>` : ''}</div><div class="actions">${actions}</div></div>`;
 }
 
+function backLink(path, name) {
+  return `<a class="back" href="#${escape(path)}"><span aria-hidden="true">←</span> ${escape(name)}</a>`;
+}
+
 function badge(status, voided = false) {
   const className = escape(status.toLowerCase().replaceAll(' ', '-'));
   return `<span class="badge ${className}">${escape(status)}</span>${voided ? ' <span class="badge voided">Voided</span>' : ''}`;
@@ -245,7 +249,7 @@ function projectBrowser(inPicker = false) {
     ${inPicker ? field('Search projects', 'project_search', '', 'placeholder="Name, project reference or obligation request"', 'search')
       : `<div class="project-browser-toolbar">
         <label class="project-search">Search: <input name="project_search" type="search" placeholder="Project name, project reference, obligation request number"></label>
-        <button type="button" data-contractors aria-label="Back to contractors" hidden>← Back</button>
+        <a class="back" href="#projects" data-contractors hidden><span aria-hidden="true">←</span> Contractors</a>
       </div>`}
     <div data-project-results aria-live="polite"></div>
   </section>`;
@@ -318,7 +322,12 @@ function bindProjectBrowser(container, projects, chooseProject) {
       return;
     }
     const contractor = event.target.closest('[data-contractor]');
-    if (!contractor && !event.target.closest('[data-contractors]')) return;
+    const returnToContractors = event.target.closest('[data-contractors]');
+    if (!contractor && !returnToContractors) return;
+    if (returnToContractors?.matches('a')) {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+    }
     selectedContractor = contractor ? contractors[Number(contractor.dataset.contractor)] : undefined;
     browse();
     if (back) (contractor ? back : input).focus();
@@ -540,12 +549,9 @@ function projectFields(record = {}, creating = false) {
 }
 
 function displayNewProject() {
-  mount(`<button class="back" type="button" aria-label="Back to Projects">&lt; Back</button>${heading('New project')}
+  mount(`${backLink('projects', 'Projects')}${heading('New project')}
     <form class="panel stack new-project-form">${projectFields({}, true)}
     <div class="actions"><button class="primary" type="submit">Create project</button></div></form>`);
-  screen.querySelector('.back').addEventListener('click', () => {
-    location.hash = 'projects';
-  });
   const form = screen.querySelector('form');
   bindContractorPicker(form);
   submit(form, async (body) => {
@@ -569,8 +575,7 @@ function displayNewTransaction(projectId) {
   const precondition = projects.length
     ? '<p>An active auditor account is required for assignment.</p>'
     : '<p><a href="#new-project">Create a project</a> to register its first transaction.</p>';
-  const back = selectedProject ? `<a class="back" href="#project/${selectedProject.id}">Back to project</a>`
-    : '<a class="back" href="#projects">Projects</a>';
+  const back = selectedProject ? backLink(`project/${selectedProject.id}`, selectedProject.title) : backLink('projects', 'Projects');
   mount(`${back}${heading('New transaction', '', user.role === 'intake' ? 'New transactions start Pending.' : 'New transactions start Under Audit.')}
     ${canRegister ? `<form class="panel stack"><div class="grid">
       <div class="project-field">
@@ -635,7 +640,7 @@ function displayProject(record) {
     lookups.contractors.push({ id: record.contractor_id, name: record.contractor });
     lookups.contractors.sort((a, b) => a.name.localeCompare(b.name));
   }
-  mount(`<a class="back" href="#projects">Projects</a>${heading(projectLabel(record.title, record.reference))}
+  mount(`${backLink('projects', 'Projects')}${heading(projectLabel(record.title, record.reference))}
     ${isAuditRole() ? `<form id="project-form" class="panel"><h2>Project details</h2>
       <div class="grid project-details-grid"><div class="stack">${projectFields(record)}</div></div>
       <div class="actions form-actions"><button class="primary" type="submit">Save project details</button></div>
@@ -912,7 +917,7 @@ function displayTransaction(record, documentDrafts = new Map(), checklistOpen = 
     </dl>${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}</section>`;
   const checklist = audit ? checklistPanel(record.checklist, editable, record.type, documentDrafts, checklistOpen) : '';
   const transactionType = record.type === 'bac' ? 'BAC Documentation' : lookups.types[record.type];
-  mount(`<a class="back button" href="#project/${record.project_id}" aria-label="Back to project">&lt;&lt; Back</a>
+  mount(`${backLink(`project/${record.project_id}`, record.project)}
     <div class="page-heading transaction-heading"><div>
       <h1 tabindex="-1">${escape(record.project)}</h1>
       <span class="badge transaction-type">${escape(transactionType)}</span>
