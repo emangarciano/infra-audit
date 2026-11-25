@@ -53,7 +53,9 @@ nav a:focus-visible { outline-offset: -3px; }
 }
 .page-heading > :first-child { min-width: 0; overflow-wrap: anywhere; }
 .page-heading p { margin-top: .125rem; }
+.transaction-heading { flex-flow: column nowrap; align-items: stretch; }
 .transaction-heading h1 { font-size: 1rem; }
+.transaction-heading > .actions:empty { display: none; }
 .projects-heading { justify-content: flex-start; column-gap: .75rem; }
 .projects-heading h1 { border-inline-end: 1px solid var(--line); padding-inline-end: .75rem; }
 .back { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }

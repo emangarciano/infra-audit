@@ -124,7 +124,7 @@ function heading(title, actions = '', subtitle = '') {
 }
 
 function backLink(path, name) {
-  return `<a class="back" href="#${escape(path)}"><span aria-hidden="true">←</span> ${escape(name)}</a>`;
+  return `<a class="back" href="#${escape(path)}" aria-label="Back to ${escape(name)}"><span aria-hidden="true">←</span> Back</a>`;
 }
 
 function badge(status, voided = false) {
@@ -249,7 +249,7 @@ function projectBrowser(inPicker = false) {
     ${inPicker ? field('Search projects', 'project_search', '', 'placeholder="Name, project reference or obligation request"', 'search')
       : `<div class="project-browser-toolbar">
         <label class="project-search">Search: <input name="project_search" type="search" placeholder="Project name, project reference, obligation request number"></label>
-        <a class="back" href="#projects" data-contractors hidden><span aria-hidden="true">←</span> Contractors</a>
+        <a class="back" href="#projects" aria-label="Back to contractors" data-contractors hidden><span aria-hidden="true">←</span> Back</a>
       </div>`}
     <div data-project-results aria-live="polite"></div>
   </section>`;
