@@ -4,7 +4,7 @@ import {
   amount, amountForCopy, auditRoles, checklistStates, date, id, movementKinds,
   oneOf, statusNames, text, today, types,
 } from './domain.js';
-import { renderSlip } from './references.js';
+import { bacChecklistGroup, renderSlip } from './references.js';
 
 const txColumns = `
   t.id, t.project_id, p.title AS project, p.reference AS project_reference, t.type, t.reference,
@@ -282,6 +282,7 @@ export async function readTransaction(client, user, transactionId) {
   const items = await checklist(client, transactionId);
   return { ...record, history, checklist: items.map((item) => ({
     ...item, field_definitions: bacFields(record.type, item),
+    ...(record.type === 'bac' ? { checklist_group: bacChecklistGroup(item) } : {}),
   })) };
 }
 

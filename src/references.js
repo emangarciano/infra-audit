@@ -1,6 +1,37 @@
 import { readFile } from 'node:fs/promises';
 import { types, text } from './domain.js';
 
+const bacSource = await readFile(new URL('../docs/BAC Documentation.csv', import.meta.url), 'utf8');
+const bacChecklist = bacSource.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((row) => {
+  const cell = /^(?:"((?:[^"]|"")*)"|([^",]+))$/.exec(row);
+  if (!cell) throw new Error('Each BAC checklist row must contain one requirement label.');
+  const label = cell[1] === undefined ? cell[2] : cell[1].replaceAll('""', '"');
+  return text(label, 'Checklist label', 240, true);
+});
+
+const bacGroupRanges = [
+  ['preparation', 'APP/SPP', 'Checklist of Requirements'],
+  ['evaluation', 'Abstract of Bids as Read', 'Notice of Post-Qualification'],
+  ['award', 'BAC Resolution', 'Certificate of PhilGEPS Award Notice Abstract'],
+  ['financial', 'Financial Bid Form', 'Cash Flow by the Quarter & Payments Schedule'],
+  ['technical', 'Statement of all ongoing government and private contracts', 'Latest Income Tax Return'],
+];
+const bacGroupByLabel = new Map();
+for (const [group, first, last] of bacGroupRanges) {
+  const start = bacChecklist.indexOf(first);
+  const end = bacChecklist.indexOf(last);
+  if (start < 0 || end < start) throw new Error(`Invalid BAC checklist range for ${group}.`);
+  for (const label of bacChecklist.slice(start, end + 1)) {
+    // The financial proposal range is assigned before the enclosing technical proposal range.
+    const key = label.toLowerCase();
+    if (!bacGroupByLabel.has(key)) bacGroupByLabel.set(key, group);
+  }
+}
+
+export function bacChecklistGroup(item) {
+  return item.custom ? 'others' : bacGroupByLabel.get(item.label.toLowerCase()) ?? 'others';
+}
+
 const draftLayout = `<!doctype html>
 <html lang="en"><meta charset="utf-8"><title>Suspension slip</title>
 <style>
@@ -51,15 +82,7 @@ export async function loadReferences(env = process.env) {
       checklists[type] = ['Development fixture — sample requirement A', 'Development fixture — sample requirement B'];
     }
   }
-  if (!Object.hasOwn(checklists, 'bac')) {
-    const source = await readFile(new URL('../docs/BAC Documentation.csv', import.meta.url), 'utf8');
-    checklists.bac = source.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((row) => {
-      const cell = /^(?:"((?:[^"]|"")*)"|([^",]+))$/.exec(row);
-      if (!cell) throw new Error('Each BAC checklist row must contain one requirement label.');
-      const label = cell[1] === undefined ? cell[2] : cell[1].replaceAll('""', '"');
-      return text(label, 'Checklist label', 240, true);
-    });
-  }
+  checklists.bac ??= [...bacChecklist];
   const layout = env.PACCO_SLIP_TEMPLATE_FILE
     ? await readFile(env.PACCO_SLIP_TEMPLATE_FILE, 'utf8')
     : draftLayout;

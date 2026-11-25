@@ -425,23 +425,21 @@ function displayProject(record) {
   }, { conflict: `#project/${record.id}` });
 }
 
-const checklistStates = [
-  ['N/A', 'N/A'],
-  ['Checked', 'Complied'],
-  ['Unchecked', 'Not Complied'],
-];
-const checklistStateLabels = Object.fromEntries(checklistStates);
+const checklistStateLabels = { 'N/A': 'N/A', Checked: 'Complied', Unchecked: 'Not Complied' };
 const booleanOptions = [['', 'Not recorded'], ['true', 'Yes'], ['false', 'No']];
+const bacGroupLabels = {
+  preparation: 'Procurement preparation', evaluation: 'Procurement evaluation', award: 'Award',
+  financial: 'Financial proposal', technical: 'Technical proposal', others: 'Others',
+};
 
 function documentFieldValue(value) {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   return value ?? '—';
 }
 
-function documentFields(item, editable) {
+function documentFields(item) {
   return item.field_definitions.map(({ key, label, kind }) => {
     const value = item.document_fields[key];
-    if (!editable) return `<div><strong>${escape(label)}</strong> ${escape(documentFieldValue(value))}</div>`;
     if (kind === 'boolean') return select(label, key, booleanOptions, value ?? '');
     let attributes = 'maxlength="240"';
     if (kind === 'amount') attributes = 'inputmode="decimal" maxlength="23" data-peso-amount';
@@ -450,23 +448,70 @@ function documentFields(item, editable) {
   }).join('');
 }
 
-function checklistRow(item) {
-  const name = `requirement-${item.id}`;
-  const choices = checklistStates.map(([state, label]) =>
-    `<label><input type="radio" name="state_${item.id}" value="${state}"${state === item.state ? ' checked' : ''}> ${label}</label>`,
-  ).join('');
-  return `<li class="checklist-row">
-    <span id="${name}" class="requirement-name">${escape(item.label)}${item.custom ? ' <span class="muted">(custom)</span>' : ''}</span>
-    <div class="checklist-choices" role="radiogroup" aria-labelledby="${name}">${choices}</div>
-    <button type="button" class="checklist-details" data-document="${item.id}" aria-haspopup="dialog"
-      aria-label="Add details" aria-describedby="${name}">+</button></li>`;
+function documentBadges(item, values) {
+  const details = item.field_definitions.map(({ key, label }) => [label, values.document_fields[key]]);
+  details.push(['Remarks', values.remarks]);
+  return details.filter(([, value]) => value != null && String(value).trim() !== '').map(([label, value]) =>
+    `<span class="badge"><strong>${escape(label)}</strong> ${escape(documentFieldValue(value))}</span>`).join('');
 }
 
-function checklistPanel(items, editable, type) {
-  const empty = '<p class="muted">No requirements have been recorded.</p>';
+function checklistRow(item, editable, draft) {
+  const name = `requirement-${item.id}`;
+  const notApplicable = item.state === 'N/A';
+  const complied = item.state === 'Checked';
+  const controls = editable ? `<div class="checklist-choices">
+      <label><input type="checkbox" name="not_applicable_${item.id}" value="N/A" aria-describedby="${name}"${notApplicable ? ' checked' : ''}> N/A</label>
+      <label><input type="checkbox" name="complied_${item.id}" value="Checked" aria-describedby="${name}"${complied ? ' checked' : ''}${notApplicable ? ' disabled' : ''}>
+        <span class="compliance-label">${complianceLabel(notApplicable, complied)}</span></label>
+      <button type="button" class="checklist-details" data-document="${item.id}" aria-haspopup="dialog"
+        aria-label="Add details" aria-describedby="${name}">+</button>
+    </div>` : `<span class="checklist-choices">${checklistStateLabels[item.state]}</span>`;
+  return `<li class="checklist-row" data-state="${escape(item.state)}">
+    <div class="requirement-controls">
+      <span id="${name}" class="requirement-name">${escape(item.label)}${item.custom ? ' <span class="muted">(custom)</span>' : ''}</span>
+      ${controls}
+    </div>
+    <div class="document-badges">${documentBadges(item, draft ?? item)}</div>
+  </li>`;
+}
+
+function checklistState(notApplicable, complied) {
+  return notApplicable ? 'N/A' : complied ? 'Checked' : 'Unchecked';
+}
+
+function complianceLabel(notApplicable, complied) {
+  return checklistStateLabels[notApplicable || complied ? 'Checked' : 'Unchecked'];
+}
+
+function syncChecklistRow(row) {
+  const notApplicable = row.querySelector('input[value="N/A"]').checked;
+  const compliance = row.querySelector('input[value="Checked"]');
+  compliance.disabled = notApplicable;
+  if (notApplicable) compliance.checked = false;
+  row.dataset.state = checklistState(notApplicable, compliance.checked);
+  row.querySelector('.compliance-label').textContent = complianceLabel(notApplicable, compliance.checked);
+}
+
+function checklistRows(items, editable, type, documentDrafts) {
+  if (!items.length) return '<p class="muted">No requirements have been recorded.</p>';
+  const list = (rows) => `<ul class="checklist-rows" role="list">${rows.map((item) =>
+    checklistRow(item, editable, documentDrafts.get(item.id))).join('')}</ul>`;
+  if (type !== 'bac') return list(items);
+  const groups = Object.entries(bacGroupLabels).map(([group, title]) => {
+    const rows = items.filter((item) => item.checklist_group === group);
+    if (!rows.length) return '';
+    return `<section class="checklist-group" data-group="${group}" aria-labelledby="checklist-${group}">
+      <h3 id="checklist-${group}">${title}</h3>${list(rows)}
+    </section>`;
+  });
+  return `<div class="checklist-groups">${groups.join('')}</div>`;
+}
+
+function checklistPanel(items, editable, type, documentDrafts) {
+  const rows = checklistRows(items, editable, type, documentDrafts);
   const contents = editable
     ? `<form id="checklist-form">
-      ${items.length ? `<ul class="checklist-rows" role="list">${items.map(checklistRow).join('')}</ul>` : empty}
+      ${rows}
       <div class="grid form-actions">
         ${field('Add a transaction-specific requirement', 'new_label', '', 'maxlength="240"')}
         ${field('Action date', 'actual_on', today(), 'required', 'date')}
@@ -474,20 +519,15 @@ function checklistPanel(items, editable, type) {
       <div class="notice error form-actions" role="alert" tabindex="-1" hidden></div>
       <div class="actions form-actions"><button class="primary" type="submit">Save checklist</button></div>
     </form>
-    <dialog id="document-dialog" aria-labelledby="document-dialog-title"></dialog>`
-    : items.length ? `<div class="table-panel"><table class="checklist">
-      <thead><tr><th scope="col">Requirement</th><th scope="col">State</th><th scope="col">Reason or remarks</th></tr></thead>
-      <tbody>${items.map((item) => `<tr><td>${escape(item.label)}${item.custom ? ' <span class="muted">(custom)</span>' : ''}
-        ${documentFields(item, false)}</td><td>${checklistStateLabels[item.state]}</td><td>${escape(item.remarks || '—')}</td></tr>`).join('')}</tbody>
-    </table></div>` : empty;
-  return `<section class="panel${editable && type === 'bac' ? ' checklist-bac' : ''}" aria-labelledby="checklist-title">
+    <dialog id="document-dialog" aria-labelledby="document-dialog-title"></dialog>` : rows;
+  return `<section class="panel" aria-labelledby="checklist-title">
     <h2 id="checklist-title">Requirement checklist</h2>${contents}</section>`;
 }
 
 function openDocumentDetails(modal, item, draft, trigger, confirm) {
   modal.innerHTML = `<h2 id="document-dialog-title">${escape(item.label)}</h2>
     <form class="stack">
-      ${item.field_definitions.length ? `<div class="grid">${documentFields({ ...item, ...draft }, true)}</div>` : ''}
+      ${item.field_definitions.length ? `<div class="grid">${documentFields({ ...item, ...draft })}</div>` : ''}
       ${remarks('Remarks (optional)', 'remarks', draft.remarks)}
       <div class="actions"><button type="submit" class="primary">OK</button>
         <button type="button" data-cancel-document>Cancel</button></div>
@@ -521,7 +561,7 @@ function openDocumentDetails(modal, item, draft, trigger, confirm) {
     modal.close();
   });
   modal.querySelector('[data-cancel-document]').addEventListener('click', () => modal.close());
-  modal.addEventListener('close', () => trigger.focus(), { once: true });
+  trigger.focus();
   modal.showModal();
 }
 
@@ -589,10 +629,11 @@ function refreshTransaction(record, draftForm, documentDrafts) {
   displayTransaction(record, documentDrafts);
   if (!draft) return;
   const form = document.getElementById(draftForm.id);
-  for (const [name, value] of draft) {
-    const control = form.elements.namedItem(name);
-    if (control) control.value = value;
+  for (const control of form.elements) {
+    if (control.type === 'checkbox') control.checked = draft.has(control.name);
+    else if (draft.has(control.name)) control.value = draft.get(control.name);
   }
+  form.querySelectorAll('.checklist-row').forEach(syncChecklistRow);
   form.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
@@ -609,7 +650,7 @@ function displayTransaction(record, documentDrafts = new Map()) {
       <div><dt>Received or created</dt><dd>${escape(record.received_on)}</dd></div>
       <div><dt>Latest action date</dt><dd>${escape(record.latest_action_on)}</dd></div>
     </dl>${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}</section>`;
-  const checklist = audit ? checklistPanel(record.checklist, editable, record.type) : '';
+  const checklist = audit ? checklistPanel(record.checklist, editable, record.type, documentDrafts) : '';
   mount(`<a class="back" href="#queue">Transaction queue</a>${heading(record.reference, transactionActions(record), lookups.types[record.type])}
     ${editable && record.type === 'bac' ? checklist + summary : summary + checklist}
     ${editable ? `<section class="panel"><h2>Transaction details</h2><form id="transaction-details" class="stack">
@@ -628,7 +669,11 @@ function displayTransaction(record, documentDrafts = new Map()) {
     const documentDialog = screen.querySelector('#document-dialog');
     const actionButtons = screen.querySelectorAll('[data-action]');
     let detailsDirty = false;
-    checklistForm.addEventListener('input', () => { checklistDirty = true; });
+    checklistForm.addEventListener('input', (event) => {
+      checklistDirty = true;
+      const row = event.target.closest('.checklist-row');
+      if (row) syncChecklistRow(row);
+    });
     detailsForm.addEventListener('input', () => { detailsDirty = true; });
     checklistForm.addEventListener('click', (event) => {
       const trigger = event.target.closest('[data-document]');
@@ -637,6 +682,7 @@ function displayTransaction(record, documentDrafts = new Map()) {
       openDocumentDetails(documentDialog, item, documentDrafts.get(item.id) ?? item, trigger, (draft) => {
         documentDrafts.set(item.id, draft);
         checklistDirty = true;
+        trigger.closest('.checklist-row').querySelector('.document-badges').innerHTML = documentBadges(item, draft);
       });
     });
 
@@ -655,7 +701,7 @@ function displayTransaction(record, documentDrafts = new Map()) {
       showNotice('');
       const items = record.checklist.map((item) => ({
         id: item.id,
-        state: body[`state_${item.id}`],
+        state: checklistState(body[`not_applicable_${item.id}`], body[`complied_${item.id}`]),
         remarks: item.remarks,
         ...documentDrafts.get(item.id),
       }));
