@@ -12,6 +12,7 @@ const manilaTime = new Intl.DateTimeFormat('en-PH', {
   dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Manila',
 });
 const pesoCurrency = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
+const pesoAmountAttributes = 'inputmode="decimal" maxlength="23" data-peso-amount';
 const roleNames = {
   intake: 'Administrative staff', auditor: 'Auditor', supervisor: 'Supervisor', 'system-admin': 'System administrator',
 };
@@ -80,6 +81,25 @@ function field(label, name, value = '', attributes = '', kind = 'text') {
   return `<label>${escape(label)}<input name="${name}" type="${kind}" value="${escape(value)}" ${attributes}></label>`;
 }
 
+function bindPesoAmounts(form) {
+  for (const input of form.querySelectorAll('[data-peso-amount]')) {
+    const format = () => {
+      const { value } = parsePesoAmount(input.value.trim());
+      if (value === undefined) return;
+      const [whole, centavos] = value.split('.');
+      input.value = `${BigInt(whole).toLocaleString('en-PH')}.${centavos}`;
+    };
+    format();
+    input.addEventListener('input', () => {
+      const value = input.value.trim();
+      input.setCustomValidity(value && parsePesoAmount(value).error
+        ? 'Enter a peso amount with at most 13 whole digits and two decimal places.' : '');
+    });
+    input.addEventListener('blur', format);
+    form.addEventListener('submit', format);
+  }
+}
+
 function remarks(label, name, value = '', max = 1000) {
   return `<label>${escape(label)}<textarea name="${name}" maxlength="${max}">${escape(value)}</textarea></label>`;
 }
@@ -128,6 +148,7 @@ function updateHeader(onProjectList = false) {
 }
 
 function submit(form, work, { localError, conflict } = {}) {
+  bindPesoAmounts(form);
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const buttons = [...form.querySelectorAll('[type="submit"]')];
@@ -333,7 +354,7 @@ function projectFields(record = {}, creating = false) {
   return `${field('Project name', 'title', record.title, 'required maxlength="200"')}
     ${field('Project reference', 'reference', record.reference, `maxlength="200" ${required}`)}
     ${field('Contractor', 'contractor', record.contractor, `maxlength="200" ${required}`)}
-    ${field('Contract amount (₱)', 'contract_amount', record.contract_amount, `inputmode="decimal" maxlength="23" ${required}`)}
+    ${field('Contract amount (₱)', 'contract_amount', record.contract_amount, `${pesoAmountAttributes} ${required}`)}
     ${!creating && isAuditRole() ? `${field('Contract date', 'contract_date', record.contract_date, '', 'date')}
     ${field('Contract duration', 'contract_duration', record.contract_duration, 'maxlength="100"')}` : ''}`;
 }
@@ -455,7 +476,7 @@ function documentFields(item) {
     const value = item.document_fields[key];
     if (kind === 'boolean') return select(label, key, booleanOptions, value ?? '');
     let attributes = 'maxlength="240"';
-    if (kind === 'amount') attributes = 'inputmode="decimal" maxlength="23" data-peso-amount';
+    if (kind === 'amount') attributes = pesoAmountAttributes;
     if (kind === 'date') attributes = 'min="0001-01-01" max="9999-12-31"';
     return field(label, key, value ?? '', attributes, kind === 'date' ? 'date' : 'text');
   }).join('');
@@ -551,14 +572,8 @@ function openDocumentDetails(modal, item, draft, trigger, confirm) {
         <button type="button" data-cancel-document>Cancel</button></div>
     </form>`;
   const form = modal.querySelector('form');
+  bindPesoAmounts(form);
   const initial = new FormData(form);
-  form.querySelectorAll('[data-peso-amount]').forEach((input) => {
-    input.addEventListener('input', () => {
-      const value = input.value.trim();
-      input.setCustomValidity(value && parsePesoAmount(value).error
-        ? 'Enter a peso amount with at most 13 whole digits and two decimal places.' : '');
-    });
-  });
   form.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.isComposing && !event.shiftKey &&
         (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement)) {
@@ -770,7 +785,7 @@ function openAction(record, action, label) {
       ${certify && unchecked.length ? `<p class="warning">${unchecked.length} applicable ${unchecked.length === 1 ? 'requirement is' : 'requirements are'} unchecked. Enter a justification to certify.</p>
         <label>Justification<textarea name="justification" required maxlength="2500"></textarea></label>` : ''}
       ${certify && record.type !== 'bac' ? `<div class="stack">
-        ${field('Certified amount (₱, optional)', 'certified_amount', '', 'inputmode="decimal" maxlength="23"')}
+        ${field('Certified amount (₱, optional)', 'certified_amount', '', pesoAmountAttributes)}
         <div class="actions"><button type="button" id="preview-amount">Show figures and words</button></div>
         <div id="amount-preview" aria-live="polite"></div></div>` : ''}
       ${action === 'void'
