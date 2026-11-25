@@ -54,7 +54,6 @@ nav a:focus-visible { outline-offset: -3px; }
 .page-heading > :first-child { min-width: 0; overflow-wrap: anywhere; }
 .page-heading p { margin-top: .125rem; }
 .transaction-heading { flex-flow: column nowrap; align-items: stretch; }
-.transaction-heading h1 { font-size: 1rem; }
 .transaction-heading > .actions:empty { display: none; }
 .projects-heading { justify-content: flex-start; column-gap: .75rem; }
 .projects-heading h1 { border-inline-end: 1px solid var(--line); padding-inline-end: .75rem; }
@@ -161,8 +160,9 @@ td a { font-weight: 650; }
   background: #e4f1ef; color: #18564c; font-size: .75rem; font-weight: 700;
 }
 .transaction-type {
-  margin-top: .25rem; padding-inline: .5rem; border-radius: 999px;
-  background: var(--accent); color: white;
+  margin-block: .375rem .25rem; margin-inline-end: .3125rem; padding: .3125rem .75rem;
+  border: 1px solid var(--accent); border-radius: 999px; background: transparent; color: var(--deep);
+  box-shadow: .3125rem .3125rem 0 var(--accent); font-size: 1rem; white-space: normal;
 }
 .suspended { background: #fbe6d9; color: #823611; }
 .resubmitted { background: #fff0c6; color: #694810; }
