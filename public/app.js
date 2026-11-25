@@ -214,7 +214,7 @@ function projectBrowser(inPicker = false) {
   return `<section class="panel stack" aria-label="Project register" data-project-browser>
     ${inPicker ? field('Search projects', 'project_search', '', 'placeholder="Name, project reference or obligation request"', 'search')
       : `<div class="project-browser-toolbar">
-        <label class="project-search">Search: <input name="project_search" type="search" placeholder="Project name, ..."></label>
+        <label class="project-search">Search: <input name="project_search" type="search" placeholder="Project name, project reference, obligation request number"></label>
         <button type="button" data-contractors aria-label="Back to contractors" hidden>← Back</button>
       </div>`}
     <div data-project-results aria-live="polite"></div>
