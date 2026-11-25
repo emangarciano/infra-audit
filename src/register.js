@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { bacFields, updateDocumentFields } from './bac-fields.js';
 import { RequestError } from './database.js';
 import {
@@ -181,7 +182,6 @@ export async function correctProject(client, user, projectId, body) {
 export async function createTransaction(client, user, body, references) {
   const projectId = id(body.project_id, 'Project');
   const type = oneOf(body.type, Object.keys(types), 'Transaction type');
-  const reference = text(body.reference, 'Transaction reference or title', 200, true);
   const obligationReference = obligationRequestReference(body.obligation_request_reference);
   const receivedOn = date(body.received_on, 'Received date', today());
   const auditorId = user.role === 'intake' ? id(body.assigned_auditor_id, 'Assigned auditor') : user.id;
@@ -193,18 +193,20 @@ export async function createTransaction(client, user, body, references) {
     [auditorId, auditRoles],
   );
   if (!auditor.rowCount) throw new RequestError(400, 'Select an active auditor.');
-  await client.query('SELECT pg_advisory_xact_lock(713, hashtext(lower($1)))', [`${projectId}:${type}:${reference}`]);
+  await client.query('SELECT pg_advisory_xact_lock(713, hashtext($1))', [`${projectId}:${type}:${receivedOn}`]);
   if (body.allow_duplicate !== true) {
     const existing = await client.query(`
       SELECT t.id FROM transactions t
-      WHERE t.project_id = $1 AND t.type = $2 AND lower(t.reference) = lower($3)
+      WHERE t.project_id = $1 AND t.type = $2 AND t.received_on = $3
+        AND lower(t.obligation_request_reference) IS NOT DISTINCT FROM lower($4::text)
         AND NOT EXISTS (SELECT 1 FROM audit_events e WHERE e.transaction_id = t.id AND e.kind = 'void')
       LIMIT 1
-    `, [projectId, type, reference]);
+    `, [projectId, type, receivedOn, obligationReference]);
     if (existing.rowCount) {
-      throw new RequestError(409, 'This project already has a transaction with the same type and reference. Create another anyway?', 'duplicate');
+      throw new RequestError(409, 'This project already has a transaction with the same type, received date, and obligation request reference. Create another anyway?', 'duplicate');
     }
   }
+  const reference = `TX-${randomUUID()}`;
   const saved = await client.query(`
     INSERT INTO transactions (project_id, type, reference, received_on, assigned_auditor_id, notes,
       obligation_request_reference)
