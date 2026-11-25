@@ -148,8 +148,8 @@ async function restore(client, directory, archive, options) {
       if (legacy) {
         // An older archive did not replace the live contractor list during pg_restore.
         await client.query('DROP TABLE IF EXISTS public.contractors');
-        await applySchema(client);
       }
+      await applySchema(client);
       await client.query('DELETE FROM sessions');
       await client.query('COMMIT');
     } catch (error) {

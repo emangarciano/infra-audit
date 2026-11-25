@@ -802,14 +802,16 @@ function changeDetails(changes, kind) {
   if (!changes) return '';
   const stateLabel = (item) => checklistStateLabels[item.state] ?? item.state;
   const lines = Array.isArray(changes)
-    ? changes.map(({ before, after }) => before
-      ? [
+    ? changes.map(({ before, after }) => {
+      if (!before) return `Added requirement ${after.label} (${stateLabel(after)}).`;
+      if (!after) return `Removed requirement ${before.label} (${stateLabel(before)}). Remarks: ${before.remarks || '—'}.`;
+      return [
         `${after.label}. State: ${stateLabel(before)} → ${stateLabel(after)}. Remarks: ${before.remarks || '—'} → ${after.remarks || '—'}.`,
         ...Object.keys({ ...before.document_fields, ...after.document_fields })
           .filter((key) => before.document_fields?.[key] !== after.document_fields?.[key])
           .map((key) => `${key.replaceAll('_', ' ')}: ${documentFieldValue(before.document_fields?.[key])} → ${documentFieldValue(after.document_fields?.[key])}.`),
-      ].join(' ')
-      : `Added requirement ${after.label} (${stateLabel(after)}).`)
+      ].join(' ');
+    })
     : Object.entries(changes).map(([field, { before, after }]) => {
       const label = field === 'reference' && kind === 'project_correction' ? 'Project reference' : fieldLabels[field] ?? field;
       return `${label}: ${before ?? '—'} → ${after ?? '—'}`;
@@ -836,7 +838,7 @@ function historyPanel(history, transactionId, audit = true) {
         ${details.justification ? `<p><strong>Justification</strong> ${escape(details.justification)}</p>` : ''}
         ${details.figures ? copyField('Certified amount in figures', details.figures) + copyField('Certified amount in words', details.words) : ''}
         ${event.has_slip ? `<p><a href="/api/transactions/${transactionId}/slips/${event.id}" target="_blank" rel="noopener">Open printable suspension slip</a></p>` : ''}
-        ${changeDetails(details.changes, event.kind)}</li>`;
+        ${changeDetails(details.changes ?? details.checklist_removals, event.kind)}</li>`;
     }).join('')}</ol>` : '<p class="muted">No history recorded.</p>'}
   </section>`;
 }

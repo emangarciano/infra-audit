@@ -9,7 +9,7 @@ const bacGroupRanges = [
   ['technical', 'Statement of all ongoing government and private contracts', 'Latest Income Tax Return'],
 ];
 
-export function bacChecklistGroups(items) {
+export function groupBacChecklist(items) {
   const standardItems = items.filter((item) => !item.custom);
   const labels = standardItems.map((item) => item.label.toLowerCase());
   const groups = new Map();
@@ -22,7 +22,19 @@ export function bacChecklistGroups(items) {
       if (!groups.has(id)) groups.set(id, group);
     }
   }
-  return groups;
+  const grouped = items.map((item) => ({ ...item, checklist_group: groups.get(item.id) ?? 'others' }));
+  const certificateIndex = grouped.findIndex(({ custom, label }) =>
+    !custom && label.toLowerCase() === 'philgeps certificate of registration and membership');
+  if (certificateIndex < 0) return grouped;
+
+  const certificate = grouped[certificateIndex];
+  certificate.checklist_group = 'technical';
+  const firstTechnicalIndex = grouped.findIndex(({ checklist_group }) => checklist_group === 'technical');
+  if (certificateIndex > firstTechnicalIndex) {
+    grouped.splice(certificateIndex, 1);
+    grouped.splice(firstTechnicalIndex, 0, certificate);
+  }
+  return grouped;
 }
 
 const draftLayout = `<!doctype html>

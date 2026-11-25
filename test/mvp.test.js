@@ -22,6 +22,9 @@ test('Dates and manually entered amounts preserve exact input', () => {
 });
 
 const url = process.env.PACCO_TEST_DATABASE_URL;
+const philgepsCertificate = 'PhilGEPS Certificate of Registration and Membership';
+const retiredBacRequirement = 'Other Appropriate Licenses and Permits required by law and stated in the PBD';
+
 test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE_URL for database tests.' }, async (t) => {
   const coordinator = connectDatabase(url);
   const schema = `pacco_test_${randomBytes(8).toString('hex')}`;
@@ -268,11 +271,13 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal(byProjectReference[0].project_reference, fields.reference);
 
     const bac = await success(`/transactions/${selfAssigned.id}`, { cookie: otherAuditor });
-    assert.equal(bac.checklist.length, 63);
+    assert.equal(bac.checklist.length, 62);
     assert.equal(bac.checklist[0].label, 'APP/SPP');
     assert.equal(bac.checklist.at(-1).label, 'Construction Safety and Health Program approved by DOLE');
     assert.ok(bac.checklist.some((item) => item.label === 'Valid Joint Venture Agreement, if applicable'));
     assert.ok(bac.checklist.every((item) => item.state === 'Unchecked' && !item.custom));
+    assert.equal(bac.checklist.find(({ checklist_group }) => checklist_group === 'technical').label, philgepsCertificate);
+    assert.ok(bac.checklist.every(({ label }) => label !== retiredBacRequirement));
   });
 
   await t.test('AC-07 Start Audit records a Pending movement with revision and role checks', async () => {
@@ -628,6 +633,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
       ['APP/SPP', 'preparation'],
       ['Development fixture — alternate procurement requirement', 'preparation'],
       ['Checklist of Requirements', 'preparation'],
+      [philgepsCertificate, 'technical'],
       ['Statement of all ongoing government and private contracts', 'technical'],
       ['Financial Bid Form', 'financial'],
       ['Development fixture — alternate financial requirement', 'financial'],
@@ -636,7 +642,10 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
       ['PPMP', 'others'],
     ];
     const defaultBac = references.checklists.bac;
-    references.checklists.bac = expected.map(([label]) => label);
+    references.checklists.bac = [
+      ...expected.map(([label]) => label).filter((label) => label !== philgepsCertificate),
+      philgepsCertificate, retiredBacRequirement,
+    ];
     let transaction;
     try {
       transaction = await success('/transactions', post({
@@ -652,6 +661,59 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     const saved = await success(`${path}/checklist`, patch({ revision: initial.revision, new_label: 'APP/SPP' }, auditor));
     const custom = saved.checklist.find((item) => item.custom);
     assert.equal(custom.checklist_group, 'others');
+  });
+
+  await t.test('BAC migration removes the retired standard requirement and preserves saved audit evidence', async () => {
+    const { id } = await success('/transactions', post({
+      project_id: project.id, type: 'bac', received_on: '2026-11-14',
+    }, auditor), 201);
+    const path = `/transactions/${id}`;
+    const { rows: [retired] } = await db.pool.query(`
+      INSERT INTO checklist_items (transaction_id, label) VALUES ($1, $2) RETURNING id
+    `, [id, retiredBacRequirement]);
+    const initial = await success(path, { cookie: auditor });
+    const certificate = initial.checklist.find(({ label }) => label === philgepsCertificate);
+    const saved = await success(`${path}/checklist`, patch({
+      revision: initial.revision,
+      items: [
+        { id: certificate.id, state: 'Checked', remarks: 'Verified certificate' },
+        { id: retired.id, state: 'Unchecked', remarks: 'Earlier suspension ground' },
+      ],
+      new_label: 'Development fixture — custom permit',
+    }, auditor));
+    const { record: suspended, event_id: eventId } = await success(`${path}/actions/suspend`, post({
+      revision: saved.revision, actual_on: '2026-11-15',
+    }, auditor));
+    const slipPath = `${path}/slips/${eventId}`;
+    const slip = await success(slipPath, { cookie: auditor });
+    assert.ok(slip.includes(retiredBacRequirement));
+
+    await migrate(db);
+    await migrate(db);
+
+    const migrated = await success(path, { cookie: auditor });
+    assert.equal(migrated.revision, suspended.revision + 1);
+    assert.equal(migrated.checklist.find(({ checklist_group }) => checklist_group === 'technical').id, certificate.id);
+    assert.deepEqual(migrated.checklist, suspended.checklist.filter((item) => item.id !== retired.id));
+    assert.equal(migrated.history.length, suspended.history.length + 1);
+    assert.deepEqual(migrated.history.slice(0, -1), suspended.history);
+    const migration = migrated.history.at(-1);
+    assert.equal(migration.kind, 'checklist');
+    assert.equal(migration.actor_id, null);
+    assert.equal(migration.actor_name, 'Database migration');
+    assert.ok(migration.actual_on && migration.recorded_at);
+    assert.deepEqual(migration.details.checklist_removals, [{
+      before: {
+        id: retired.id, label: retiredBacRequirement, state: 'Unchecked', remarks: 'Earlier suspension ground',
+        custom: false, document_fields: {},
+      },
+      after: null,
+    }]);
+    assert.equal(await success(slipPath, { cookie: auditor }), slip);
+    assert.equal((await db.pool.query('SELECT id FROM checklist_items WHERE id = $1', [retired.id])).rowCount, 0);
+    assert.equal((await request(`${path}/checklist`, patch({
+      revision: suspended.revision, items: [{ id: retired.id, state: 'Checked' }],
+    }, auditor))).status, 409);
   });
 
   await t.test('Projects reuse saved contractors and failed creation leaves the list unchanged', async () => {

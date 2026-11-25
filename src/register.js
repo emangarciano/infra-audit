@@ -5,7 +5,7 @@ import {
   amount, amountForCopy, auditRoles, checklistStates, date, id, movementKinds,
   oneOf, statusNames, text, today, types,
 } from './domain.js';
-import { bacChecklistGroups, renderSlip } from './references.js';
+import { groupBacChecklist, renderSlip } from './references.js';
 
 const txColumns = `
   t.id, t.project_id, p.title AS project, p.reference AS project_reference, t.type, t.reference,
@@ -251,7 +251,8 @@ export async function createTransaction(client, user, body, references) {
     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, project_id
   `, [projectId, type, reference, receivedOn, auditorId, notes, obligationReference]);
   const record = saved.rows[0];
-  const labels = references.checklists[type] ?? [];
+  const labels = (references.checklists[type] ?? []).filter((label) => type !== 'bac' ||
+    label.toLowerCase() !== 'other appropriate licenses and permits required by law and stated in the pbd');
   if (labels.length) {
     await client.query(`
       INSERT INTO checklist_items (transaction_id, label) SELECT $1, label FROM unnest($2::text[]) AS label
@@ -320,10 +321,9 @@ export async function readTransaction(client, user, transactionId) {
     return { ...summary(record), revision: record.revision, history };
   }
   const items = await checklist(client, transactionId);
-  const groups = record.type === 'bac' ? bacChecklistGroups(items) : null;
-  return { ...record, history, checklist: items.map((item) => ({
+  const orderedItems = record.type === 'bac' ? groupBacChecklist(items) : items;
+  return { ...record, history, checklist: orderedItems.map((item) => ({
     ...item, field_definitions: bacFields(record.type, item),
-    ...(groups ? { checklist_group: groups.get(item.id) ?? 'others' } : {}),
   })) };
 }
 
