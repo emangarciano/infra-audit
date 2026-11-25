@@ -131,6 +131,8 @@ tbody tr:last-child td { border-bottom: 0; }
 tbody tr:nth-child(even) { background: #f7f9f8; }
 tbody tr:hover, tbody tr:focus-within { background: #e9f4ef; }
 td a { font-weight: 650; }
+.transaction-row { position: relative; }
+.transaction-link::after { content: ''; position: absolute; inset: 0; }
 .project-choice { padding: .125rem 0; min-height: 1.5rem; text-align: start; overflow-wrap: anywhere; }
 .empty { padding: .625rem; color: var(--muted); }
 .badge {

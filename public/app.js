@@ -196,9 +196,9 @@ function displayQueue(rows) {
       ${rows.length ? `<table><thead><tr>
         <th scope="col">Type</th><th scope="col">Project</th><th scope="col">Reference</th>
         <th scope="col">Assigned auditor</th><th scope="col">Status</th><th scope="col">Latest action date</th>
-      </tr></thead><tbody>${rows.map((row) => `<tr>
+      </tr></thead><tbody>${rows.map((row) => `<tr class="transaction-row">
         <td>${escape(lookups.types[row.type])}</td><td>${escape(projectLabel(row.project, row.project_reference))}</td>
-        <td><a href="#transaction/${row.id}">${escape(row.reference)}</a></td><td>${escape(row.assigned_auditor)}</td>
+        <td><a class="transaction-link" href="#transaction/${row.id}">${escape(row.reference)}</a></td><td>${escape(row.assigned_auditor)}</td>
         <td>${badge(row.status, row.voided)}</td><td>${escape(row.latest_action_on)}</td>
       </tr>`).join('')}</tbody></table>` : '<p class="empty">No matching transactions.</p>'}
     </section>`);
