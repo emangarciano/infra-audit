@@ -494,6 +494,30 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal((await success(`/projects/${project.id}`, { cookie: intake })).contractor, undefined);
   });
 
+  await t.test('Browser checklist saves are attributed only to the expected signed-in auditor', async () => {
+    const { id } = await success('/transactions', post({
+      project_id: project.id, type: 'advance', received_on: '2026-11-20',
+    }, auditor), 201);
+    const path = `/transactions/${id}`;
+    const original = await success(path, { cookie: auditor });
+    const body = {
+      actor_id: credentials['auditor-a'], revision: original.revision,
+      items: [{ id: original.checklist[0].id, state: 'Checked', remarks: 'Browser checklist draft' }],
+    };
+    const openedAsOther = await request(`${path}?account_id=${body.actor_id}`, { cookie: otherAuditor });
+    assert.equal(openedAsOther.status, 403);
+    assert.equal(openedAsOther.data.code, 'session_account');
+    assert.equal(openedAsOther.data.checklist, undefined);
+    const rejected = await request(`${path}/checklist`, patch(body, otherAuditor));
+    assert.equal(rejected.status, 403);
+    assert.equal((await success(path, { cookie: auditor })).revision, original.revision);
+
+    const saved = await success(`${path}/checklist`, patch(body, auditor));
+    assert.equal(saved.checklist[0].state, 'Checked');
+    assert.equal(saved.checklist[0].remarks, 'Browser checklist draft');
+    assert.equal(saved.history.at(-1).actor_name, 'Auditor A');
+  });
+
   await t.test('AC-03 three checklist states, custom items and exact slip contents', async () => {
     record = await read();
     record = await success(`${txPath()}/checklist`, patch({

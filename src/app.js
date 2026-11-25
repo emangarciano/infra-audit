@@ -18,6 +18,12 @@ function payload(req) {
   return req.body;
 }
 
+function requireExpectedAccount(user, expected) {
+  if (expected !== undefined && id(expected, 'Expected account') !== user.id) {
+    throw new RequestError(403, 'The signed-in account changed. Reopen the transaction to continue.', 'session_account');
+  }
+}
+
 function browserOrigin(value) {
   if (!value) return null;
   const url = new URL(value);
@@ -98,12 +104,17 @@ export function createApp(database, references, { origin } = {}) {
     listTransactions(client, req.query)));
   app.post('/api/transactions', handle(registerRoles, (client, user, req) =>
     createTransaction(client, user, payload(req), references), 201));
-  app.get('/api/transactions/:id', handle(registerRoles, (client, user, req) =>
-    readTransaction(client, user, id(req.params.id))));
+  app.get('/api/transactions/:id', handle(registerRoles, (client, user, req) => {
+    requireExpectedAccount(user, req.query.account_id);
+    return readTransaction(client, user, id(req.params.id));
+  }));
   app.patch('/api/transactions/:id', handle(auditRoles, (client, user, req) =>
     correctTransaction(client, user, id(req.params.id), payload(req))));
-  app.patch('/api/transactions/:id/checklist', handle(auditRoles, (client, user, req) =>
-    saveChecklist(client, user, id(req.params.id), payload(req))));
+  app.patch('/api/transactions/:id/checklist', handle(auditRoles, (client, user, req) => {
+    const body = payload(req);
+    requireExpectedAccount(user, body.actor_id);
+    return saveChecklist(client, user, id(req.params.id), body);
+  }));
   app.post('/api/transactions/:id/actions/:kind', handle(registerRoles, (client, user, req) => {
     const actions = user.role === 'intake' ? ['resubmit'] : ['start', 'suspend', 'resubmit', 'resume', 'certify', 'void'];
     if (!actions.includes(req.params.kind)) throw new RequestError(403, 'Your role cannot record this action.');

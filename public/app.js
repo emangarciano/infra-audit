@@ -1,4 +1,5 @@
 import { parsePesoAmount } from './peso-amount.js';
+import { applyChecklistEdits, checklistDraftStore, checklistItemEdit, checklistSaveItems } from './checklist-draft.js';
 
 const screen = document.querySelector('#screen');
 const toast = document.querySelector('#toast');
@@ -32,6 +33,8 @@ let lookups;
 let navigationVersion = 0;
 let noticeTimer;
 let checklistNameObserver;
+let checklistAutosaveTimer;
+const checklistAutosaveInterval = 60 * 1000;
 
 const today = () => manilaDate.format(new Date());
 const isAuditRole = () => ['auditor', 'supervisor'].includes(user?.role);
@@ -59,11 +62,11 @@ function showNotice(message, isError = false, latestLink) {
 
 document.querySelector('#close-toast').addEventListener('click', () => showNotice(''));
 
-async function api(path, method = 'GET', body) {
+async function api(path, method = 'GET', body, signal) {
   let response;
   try {
     response = await fetch(`/api${path}`, {
-      method,
+      method, signal,
       ...(body === undefined ? {} : {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -133,6 +136,7 @@ function badge(status, voided = false) {
 }
 
 function mount(markup, focus = true) {
+  clearInterval(checklistAutosaveTimer);
   checklistNameObserver?.disconnect();
   screen.innerHTML = markup;
   if (focus) screen.querySelector('h1')?.focus();
@@ -700,7 +704,7 @@ function documentBadges(item, values) {
     `<span class="badge"><strong>${escape(label)}</strong> ${escape(documentFieldValue(value))}</span>`).join('');
 }
 
-function checklistRow(item, editable, draft) {
+function checklistRow(item, editable) {
   const name = `requirement-${item.id}`;
   const notApplicable = item.state === 'N/A';
   const complied = item.state === 'Checked';
@@ -715,7 +719,7 @@ function checklistRow(item, editable, draft) {
     <td><div class="checklist-item-details">
       ${editable ? `<button type="button" class="checklist-details" data-document="${item.id}" aria-haspopup="dialog"
         aria-label="Add details" aria-describedby="${name}">+</button>` : ''}
-      <div class="document-badges">${documentBadges(item, draft ?? item)}</div>
+      <div class="document-badges">${documentBadges(item, item)}</div>
     </div></td>
   </tr>`;
 }
@@ -732,13 +736,13 @@ function syncChecklistRow(row) {
   row.dataset.state = checklistState(notApplicable, compliance.checked);
 }
 
-function checklistRows(items, editable, type, documentDrafts) {
+function checklistRows(items, editable, type) {
   if (!items.length) return '<p class="muted">No requirements have been recorded.</p>';
   const table = (rows) => `<table class="checklist-table">
     <colgroup><col span="2" class="checklist-choice-column"><col class="checklist-name-column"><col></colgroup>
     <thead><tr><th scope="col" class="checklist-choice">N/A</th><th scope="col" class="checklist-choice">OK</th>
       <th scope="col">Document</th><th scope="col">Details</th></tr></thead>
-    <tbody>${rows.map((item) => checklistRow(item, editable, documentDrafts.get(item.id))).join('')}</tbody>
+    <tbody>${rows.map((item) => checklistRow(item, editable)).join('')}</tbody>
   </table>`;
   if (type !== 'bac') return table(items);
   const grouped = new Map(Object.keys(bacGroupLabels).map((group) => [group, []]));
@@ -756,8 +760,8 @@ function checklistRows(items, editable, type, documentDrafts) {
   return `<div class="checklist-groups">${groups.join('')}</div>`;
 }
 
-function checklistPanel(items, editable, type, documentDrafts, open) {
-  const rows = checklistRows(items, editable, type, documentDrafts);
+function checklistPanel(items, editable, type, open) {
+  const rows = checklistRows(items, editable, type);
   const contents = editable
     ? `<form id="checklist-form">
       ${rows}
@@ -765,6 +769,8 @@ function checklistPanel(items, editable, type, documentDrafts, open) {
         ${field('Add a transaction-specific requirement', 'new_label', '', 'maxlength="240"')}
         ${field('Action date', 'actual_on', today(), 'required', 'date')}
       </div>
+      <p class="muted form-actions" data-draft-status role="status" hidden></p>
+      <div class="notice warning form-actions" data-draft-review hidden></div>
       <div class="notice error form-actions" role="alert" tabindex="-1" hidden></div>
       <div class="actions form-actions"><button class="primary" type="submit">Save checklist</button></div>
     </form>
@@ -813,10 +819,13 @@ function openDocumentDetails(modal, item, draft, trigger, confirm) {
     event.preventDefault();
     const values = new FormData(form);
     if ([...values].some(([key, value]) => value !== initial.get(key))) confirm({
-      remarks: values.get('remarks'),
+      remarks: values.get('remarks').trim() || null,
       document_fields: Object.fromEntries(item.field_definitions.map(({ key, kind }) => {
-        const value = values.get(key);
-        return [key, value === '' ? null : kind === 'boolean' ? value === 'true' : value];
+        const value = values.get(key).trim();
+        if (value === '') return [key, null];
+        if (kind === 'boolean') return [key, value === 'true'];
+        if (kind === 'amount') return [key, parsePesoAmount(value).value ?? value];
+        return [key, value];
       })),
     });
     modal.close();
@@ -853,7 +862,7 @@ function changeDetails(changes, kind) {
 }
 
 function historyPanel(history, transactionId, audit = true) {
-  return `<section class="panel"><h2>${audit ? 'Audit history' : 'Movement history'}</h2>
+  return `<section id="transaction-history" class="panel"><h2>${audit ? 'Audit history' : 'Movement history'}</h2>
     ${history.length ? `<ol class="history">${history.map((event) => {
       const details = event.details ?? {};
       const status = event.new_status
@@ -889,40 +898,50 @@ function transactionActions(record) {
   return actions.map(([value, label]) => `<button class="${value === 'void' ? 'danger' : 'primary'}" data-action="${value}" type="button">${label}</button>`).join('');
 }
 
-function refreshTransaction(record, draftForm, documentDrafts) {
+function refreshTransaction(record, draftForm, checklistDraft) {
   const draft = draftForm ? new FormData(draftForm) : null;
   const checklistOpen = screen.querySelector('#requirements-checklist')?.open;
-  displayTransaction(record, documentDrafts, checklistOpen);
+  displayTransaction(record, { checklistOpen, checklistDraft });
   if (!draft) return;
   const form = document.getElementById(draftForm.id);
+  if (!form) return;
   for (const control of form.elements) {
-    if (control.type === 'checkbox') control.checked = draft.has(control.name);
-    else if (draft.has(control.name)) control.value = draft.get(control.name);
+    if (draft.has(control.name)) control.value = draft.get(control.name);
   }
-  form.querySelectorAll('.checklist-row').forEach(syncChecklistRow);
   form.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-function displayTransaction(record, documentDrafts = new Map(), checklistOpen = true) {
+function displayTransaction(record, { checklistOpen = true, checklistDraft, savedChecklist = false } = {}) {
   const audit = isAuditRole();
-  const editable = audit && !record.voided;
-  const link = `#transaction/${record.id}`;
-  let checklistDirty = false;
-  const itemsNeedingCompliance = audit ? uncheckedRequirements(record).length : record.items_needing_compliance;
+  const editable = audit && !record.voided && !savedChecklist;
+  const accountId = user?.id;
+  const store = editable ? checklistDraft?.store ?? checklistDraftStore(accountId, record.id) : null;
+  let draft = store ? checklistDraft?.draft ?? null : null;
+  let browserStorageFailed = false;
+  if (store && !checklistDraft) {
+    try {
+      draft = store.read();
+    } catch {
+      browserStorageFailed = true;
+    }
+  }
+  const checklistItems = audit ? applyChecklistEdits(record.checklist, draft?.items) : [];
+  const itemsNeedingCompliance = audit
+    ? checklistItems.filter(({ state }) => state === 'Unchecked').length : record.items_needing_compliance;
   const summary = `<section class="panel"><h2>Transaction summary</h2><dl class="definition-grid">
       ${record.obligation_request_reference ? `<div><dt>Obligation request reference</dt><dd>${escape(record.obligation_request_reference)}</dd></div>` : ''}
       <div><dt>Assigned auditor</dt><dd>${escape(record.assigned_auditor)}</dd></div>
       <div><dt>Status</dt><dd>${badge(record.status, record.voided)}</dd></div>
       <div aria-live="polite" aria-atomic="true"><dt>Items needing compliance:</dt><dd id="compliance-count">${itemsNeedingCompliance}</dd></div>
     </dl>${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}</section>`;
-  const checklist = audit ? checklistPanel(record.checklist, editable, record.type, documentDrafts, checklistOpen) : '';
+  const checklist = audit ? checklistPanel(checklistItems, editable, record.type, checklistOpen) : '';
   const transactionType = record.type === 'bac' ? 'BAC Documentation' : lookups.types[record.type];
   mount(`${backLink(`project/${record.project_id}`, record.project)}
     <div class="page-heading transaction-heading"><div>
       <h1 tabindex="-1">${escape(record.project)}</h1>
       <span class="badge transaction-type">${escape(transactionType)}</span>
-    </div><div class="actions">${transactionActions(record)}</div></div>
-    ${summary}${checklist}
+    </div><div class="actions">${savedChecklist ? '' : transactionActions(record)}</div></div>
+    ${savedChecklist ? '<p class="muted">Latest saved checklist</p>' : ''}${summary}${checklist}
     ${editable ? `<section class="panel"><h2>Transaction details</h2><form id="transaction-details" class="stack">
       <div class="grid">
         ${field('Reference or title', 'reference', record.reference, 'required maxlength="200"')}
@@ -935,78 +954,244 @@ function displayTransaction(record, documentDrafts = new Map(), checklistOpen = 
     ${historyPanel(record.history, record.id, audit)}`);
   if (audit) fitChecklistNames(screen.querySelector('.checklist-content'));
   if (editable) {
-    const checklistForm = screen.querySelector('#checklist-form');
-    const detailsForm = screen.querySelector('#transaction-details');
-    const checklistError = checklistForm.querySelector('.notice');
-    const documentDialog = screen.querySelector('#document-dialog');
-    const actionButtons = screen.querySelectorAll('[data-action]');
-    const complianceCount = screen.querySelector('#compliance-count');
-    let detailsDirty = false;
-    checklistForm.addEventListener('input', (event) => {
-      checklistDirty = true;
-      const row = event.target.closest('.checklist-row');
-      if (row) syncChecklistRow(row);
-      const count = String(checklistForm.querySelectorAll('.checklist-row[data-state="Unchecked"]').length);
-      if (complianceCount.textContent !== count) complianceCount.textContent = count;
-    });
-    detailsForm.addEventListener('input', () => { detailsDirty = true; });
-    checklistForm.addEventListener('click', (event) => {
-      const trigger = event.target.closest('[data-document]');
-      if (!trigger) return;
-      const item = record.checklist.find(({ id }) => id === Number(trigger.dataset.document));
-      openDocumentDetails(documentDialog, item, documentDrafts.get(item.id) ?? item, trigger, (draft) => {
-        documentDrafts.set(item.id, draft);
-        checklistDirty = true;
-        trigger.closest('.checklist-row').querySelector('.document-badges').innerHTML = documentBadges(item, draft);
-      });
-    });
-
-    async function saveTransactionForm(path, body) {
-      checklistForm.inert = detailsForm.inert = true;
-      actionButtons.forEach((button) => { button.disabled = true; });
-      try {
-        return await api(path, 'PATCH', { ...body, revision: record.revision });
-      } finally {
-        checklistForm.inert = detailsForm.inert = false;
-        actionButtons.forEach((button) => { button.disabled = false; });
-      }
-    }
-
-    submit(checklistForm, async (body) => {
-      showNotice('');
-      const items = record.checklist.map((item) => ({
-        id: item.id,
-        state: checklistState(body[`not_applicable_${item.id}`], body[`complied_${item.id}`]),
-        remarks: item.remarks,
-        ...documentDrafts.get(item.id),
-      }));
-      const updated = await saveTransactionForm(`/transactions/${record.id}/checklist`,
-        { items, new_label: body.new_label, actual_on: body.actual_on }).catch((error) => {
-        checklistForm.closest('details').open = true;
-        throw error;
-      });
-      if (!checklistForm.isConnected) return;
-      refreshTransaction(updated, detailsDirty ? detailsForm : null);
-      showNotice('Checklist saved.');
-    }, { localError: checklistError, conflict: link });
-    submit(detailsForm, async (body) => {
-      showNotice('');
-      const updated = await saveTransactionForm(`/transactions/${record.id}`, body);
-      if (!detailsForm.isConnected) return;
-      refreshTransaction(updated, checklistDirty ? checklistForm : null, documentDrafts);
-      showNotice('Transaction details saved.');
-    }, { localError: detailsForm.querySelector('.notice'), conflict: link });
-    actionButtons.forEach((button) => button.addEventListener('click', () => {
-      if (checklistDirty || detailsDirty) {
-        showNotice('Save your checklist and detail edits before recording an action.', true);
-      } else {
-        openAction(record, button.dataset.action, button.textContent);
-      }
-    }));
+    bindTransactionEditor(record, checklistItems, { draft, store, browserStorageFailed });
   } else {
     screen.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click', () =>
       openAction(record, button.dataset.action, button.textContent)));
   }
+}
+
+function bindTransactionEditor(record, checklistItems, { draft, store, browserStorageFailed }) {
+  const accountId = user.id;
+  const link = `#transaction/${record.id}`;
+  const latestLink = `${link}/latest`;
+  const checklistForm = screen.querySelector('#checklist-form');
+  const checklistDisclosure = checklistForm.closest('details');
+  const detailsForm = screen.querySelector('#transaction-details');
+  const checklistError = checklistForm.querySelector('[role="alert"]');
+  const documentDialog = screen.querySelector('#document-dialog');
+  const actionButtons = screen.querySelectorAll('[data-action]');
+  const complianceCount = screen.querySelector('#compliance-count');
+  const draftStatus = checklistForm.querySelector('[data-draft-status]');
+  const draftReview = checklistForm.querySelector('[data-draft-review]');
+  const documentDrafts = new Map(checklistItems.map((item) => [item.id, item]));
+  const removedEdits = draft?.items.filter(({ id }) => !documentDrafts.has(id)) ?? [];
+  const pageVersion = navigationVersion;
+  const currentPage = () => checklistForm.isConnected && pageVersion === navigationVersion && user?.id === accountId;
+  let draftRevision = draft?.revision ?? record.revision;
+  let detailsDirty = false;
+  let saving = false;
+  let reviewRequired = false;
+  let reviewPending = Boolean(draft?.reviewPending || draftRevision !== record.revision);
+  let autosavePaused = false;
+  let autosaveDue = false;
+
+  function latestChecklistLink() {
+    const review = document.createElement('a');
+    review.href = latestLink;
+    review.target = '_blank';
+    review.rel = 'noopener';
+    review.textContent = 'Open latest saved checklist';
+    return review;
+  }
+
+  function showDraftReview() {
+    const applied = applyChecklistEdits(record.checklist, draft.items);
+    const differences = record.checklist.flatMap((before, index) => {
+      const after = applied[index];
+      return before === after ? [] : [{ before, after }];
+    });
+    draftReview.hidden = false;
+    draftReview.textContent = 'The shared checklist changed while this draft was open. Review the saved and draft values before using Save checklist.';
+    draftReview.append(latestChecklistLink());
+    if (differences.length) {
+      draftReview.insertAdjacentHTML('beforeend', changeDetails(differences, 'checklist'));
+      draftReview.querySelector('details').open = true;
+    }
+    if (removedEdits.length) {
+      const removed = document.createElement('p');
+      removed.textContent = `Edits to removed requirements cannot be saved: ${removedEdits.map(({ label }) => label).join(', ')}.`;
+      draftReview.append(removed);
+    }
+  }
+
+  function cacheChecklist() {
+    const items = record.checklist.map((item) => {
+      const { id } = item;
+      const state = checklistState(checklistForm.elements[`not_applicable_${id}`].checked,
+        checklistForm.elements[`complied_${id}`].checked);
+      return checklistItemEdit(item, state, documentDrafts.get(id));
+    }).filter(Boolean);
+    items.push(...removedEdits);
+    const newLabel = checklistForm.elements.new_label.value.trim();
+    const hasEdits = items.length > 0 || Boolean(newLabel);
+    draft = hasEdits || reviewPending
+      ? { revision: draftRevision, items, newLabel, reviewPending, actualOn: checklistForm.elements.actual_on.value }
+      : null;
+    if (!draft) draftRevision = record.revision;
+    try {
+      store.write(draft);
+      browserStorageFailed = false;
+    } catch {
+      browserStorageFailed = true;
+    }
+    draftStatus.hidden = !hasEdits && !browserStorageFailed;
+    const message = browserStorageFailed
+      ? 'The browser could not update this local draft. Use Save checklist to keep these edits.'
+      : 'Unsaved checklist edits are stored in this browser.';
+    if (draftStatus.textContent !== message) draftStatus.textContent = message;
+    if (reviewPending && !reviewRequired) showDraftReview();
+  }
+
+  if (draft) {
+    checklistForm.elements.new_label.value = draft.newLabel ?? '';
+    checklistForm.elements.actual_on.value = draft.actualOn ?? today();
+  }
+  cacheChecklist();
+  checklistForm.addEventListener('input', (event) => {
+    const row = event.target.closest('.checklist-row');
+    if (row) syncChecklistRow(row);
+    const count = String(checklistForm.querySelectorAll('.checklist-row[data-state="Unchecked"]').length);
+    if (complianceCount.textContent !== count) complianceCount.textContent = count;
+    cacheChecklist();
+  });
+  detailsForm.addEventListener('input', () => { detailsDirty = true; });
+  checklistForm.addEventListener('click', (event) => {
+    const trigger = event.target.closest('[data-document]');
+    if (!trigger) return;
+    const item = record.checklist.find(({ id }) => id === Number(trigger.dataset.document));
+    openDocumentDetails(documentDialog, item, documentDrafts.get(item.id), trigger, (details) => {
+      documentDrafts.set(item.id, details);
+      trigger.closest('.checklist-row').querySelector('.document-badges').innerHTML = documentBadges(item, details);
+      cacheChecklist();
+    });
+  });
+
+  async function saveTransactionForm(path, body, signal) {
+    const focused = document.activeElement;
+    saving = true;
+    checklistForm.inert = detailsForm.inert = true;
+    actionButtons.forEach((button) => { button.disabled = true; });
+    try {
+      return await api(path, 'PATCH', { ...body, revision: record.revision }, signal);
+    } finally {
+      saving = false;
+      checklistForm.inert = detailsForm.inert = false;
+      actionButtons.forEach((button) => { button.disabled = false; });
+      if (currentPage() && document.activeElement === document.body && focused?.isConnected) {
+        focused.focus({ preventScroll: true });
+      }
+    }
+  }
+
+  function showChecklistError(error, automatic) {
+    reviewRequired = error.code === 'revision';
+    autosavePaused = error.status === 401 || error.status === 403;
+    checklistError.hidden = false;
+    checklistError.textContent = automatic ? `Autosave failed. ${error.message}` : error.message;
+    if (reviewRequired) {
+      reviewPending = true;
+      cacheChecklist();
+      const review = document.createElement('button');
+      review.type = 'button';
+      review.className = 'link';
+      review.textContent = 'Load latest checklist for review';
+      review.addEventListener('click', async () => {
+        review.disabled = true;
+        try {
+          const latest = await api(`/transactions/${record.id}?account_id=${accountId}`);
+          if (currentPage()) refreshTransaction(latest, detailsDirty ? detailsForm : null, { store, draft });
+        } catch (loadError) {
+          if (!currentPage()) return;
+          if (loadError.code === 'session_account') location.reload();
+          else showNotice(loadError.message, true);
+        } finally {
+          review.disabled = false;
+        }
+      });
+      checklistError.append(' ', review, latestChecklistLink());
+    }
+    if (automatic) {
+      showNotice(`Autosave failed. ${error.message}`, true);
+    } else {
+      checklistDisclosure.open = true;
+      checklistError.focus();
+    }
+  }
+
+  async function saveChecklist(automatic) {
+    if (saving || !currentPage()) return;
+    if (reviewRequired) {
+      if (!automatic) checklistError.focus();
+      return;
+    }
+    checklistError.hidden = true;
+    const items = checklistSaveItems(record.checklist, draft?.items);
+    const actualOn = checklistForm.elements.actual_on.value;
+    const newLabel = checklistForm.elements.new_label.value;
+    let updated;
+    try {
+      updated = await saveTransactionForm(`/transactions/${record.id}/checklist`, {
+        actor_id: accountId, items, new_label: automatic ? undefined : newLabel, actual_on: actualOn,
+      }, automatic ? AbortSignal.timeout(15_000) : undefined);
+    } catch (error) {
+      if (currentPage()) showChecklistError(error, automatic);
+      return;
+    }
+    const remainingDraft = automatic && draft?.newLabel
+      ? { ...draft, revision: updated.revision, items: [] } : null;
+    try {
+      store.write(remainingDraft);
+    } catch {
+      // Another tab may have updated the stored draft while this request was pending.
+    }
+    if (!currentPage()) return;
+    if (automatic) {
+      record = updated;
+      draftRevision = updated.revision;
+      draft = remainingDraft;
+      for (const item of record.checklist) documentDrafts.set(item.id, item);
+      cacheChecklist();
+      screen.querySelector('#transaction-history').outerHTML = historyPanel(record.history, record.id);
+      showNotice('Checklist autosaved.');
+    } else {
+      refreshTransaction(updated, detailsDirty ? detailsForm : null, { store, draft: null });
+      showNotice('Checklist saved.');
+    }
+  }
+
+  function autosaveChecklist() {
+    if (!currentPage() || !checklistDisclosure.open || !draft?.items.length || autosavePaused ||
+        reviewPending || !checklistForm.elements.actual_on.validity.valid) return;
+    if (documentDialog.open) {
+      autosaveDue = true;
+    } else {
+      autosaveDue = false;
+      void saveChecklist(true);
+    }
+  }
+
+  documentDialog.addEventListener('close', () => {
+    if (autosaveDue) autosaveChecklist();
+  });
+  checklistAutosaveTimer = setInterval(autosaveChecklist, checklistAutosaveInterval);
+  submit(checklistForm, () => saveChecklist(false));
+  submit(detailsForm, async (body) => {
+    if (saving || !currentPage()) return;
+    showNotice('');
+    const updated = await saveTransactionForm(`/transactions/${record.id}`, body);
+    if (!currentPage()) return;
+    const nextDraft = draft && draftRevision === record.revision ? { ...draft, revision: updated.revision } : draft;
+    refreshTransaction(updated, null, { store, draft: nextDraft });
+    showNotice('Transaction details saved.');
+  }, { localError: detailsForm.querySelector('.notice'), conflict: link });
+  actionButtons.forEach((button) => button.addEventListener('click', () => {
+    if (draft || detailsDirty) {
+      showNotice('Save your checklist and detail edits before recording an action.', true);
+    } else {
+      openAction(record, button.dataset.action, button.textContent);
+    }
+  }));
 }
 
 function uncheckedRequirements(record) {
@@ -1085,12 +1270,13 @@ function openAction(record, action, label) {
 }
 
 async function displayRoute() {
+  clearInterval(checklistAutosaveTimer);
   const version = ++navigationVersion;
   if (!user) {
     displayLogin();
     return;
   }
-  const [page, id] = route().split('/');
+  const [page, id, view] = route().split('/');
   updateHeader(page === 'projects');
   if (user.role === 'system-admin') {
     mount(`${heading('System administration')}<section class="panel"><p>Manage user accounts and database recovery using the local administrator commands.</p></section>`);
@@ -1108,16 +1294,21 @@ async function displayRoute() {
     if (page === 'new-project') displayNewProject();
     else if (page === 'new-transaction') displayNewTransaction(id);
     else if (page === 'project' || page === 'transaction') {
-      const record = await api(`/${page}s/${encodeURIComponent(id ?? '')}`);
+      const expectedAccount = page === 'transaction' ? `?account_id=${user.id}` : '';
+      const record = await api(`/${page}s/${encodeURIComponent(id ?? '')}${expectedAccount}`);
       if (version === navigationVersion) {
         if (page === 'project') displayProject(record);
-        else displayTransaction(record);
+        else displayTransaction(record, { savedChecklist: view === 'latest' });
       }
     } else {
       location.hash = 'projects';
     }
   } catch (error) {
     if (version !== navigationVersion) return;
+    if (error.code === 'session_account') {
+      location.reload();
+      return;
+    }
     if (error.status === 401) {
       user = null;
       displayLogin();
