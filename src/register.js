@@ -4,7 +4,7 @@ import {
   amount, amountForCopy, auditRoles, checklistStates, date, id, movementKinds,
   oneOf, statusNames, text, today, types,
 } from './domain.js';
-import { bacChecklistGroup, renderSlip } from './references.js';
+import { bacChecklistGroups, renderSlip } from './references.js';
 
 const txColumns = `
   t.id, t.project_id, p.title AS project, p.reference AS project_reference, t.type, t.reference,
@@ -280,9 +280,10 @@ export async function readTransaction(client, user, transactionId) {
     return { ...summary(record), revision: record.revision, history };
   }
   const items = await checklist(client, transactionId);
+  const groups = record.type === 'bac' ? bacChecklistGroups(items) : null;
   return { ...record, history, checklist: items.map((item) => ({
     ...item, field_definitions: bacFields(record.type, item),
-    ...(record.type === 'bac' ? { checklist_group: bacChecklistGroup(item) } : {}),
+    ...(groups ? { checklist_group: groups.get(item.id) ?? 'others' } : {}),
   })) };
 }
 

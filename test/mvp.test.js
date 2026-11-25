@@ -593,4 +593,35 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     await db.pool.query('UPDATE accounts SET active = false WHERE id = $1', [credentials.lockout]);
     assert.equal((await request('/session', { cookie: active.cookie })).status, 401);
   });
+
+  await t.test('BAC groups follow the checklist copied into the transaction', async () => {
+    const expected = [
+      ['APP/SPP', 'preparation'],
+      ['Development fixture — alternate procurement requirement', 'preparation'],
+      ['Checklist of Requirements', 'preparation'],
+      ['Statement of all ongoing government and private contracts', 'technical'],
+      ['Financial Bid Form', 'financial'],
+      ['Development fixture — alternate financial requirement', 'financial'],
+      ['Cash Flow by the Quarter & Payments Schedule', 'financial'],
+      ['Latest Income Tax Return', 'technical'],
+      ['PPMP', 'others'],
+    ];
+    const defaultBac = references.checklists.bac;
+    references.checklists.bac = expected.map(([label]) => label);
+    let transaction;
+    try {
+      transaction = await success('/transactions', post({
+        project_id: project.id, type: 'bac', reference: 'Development fixture — alternate BAC checklist',
+      }, auditor), 201);
+    } finally {
+      references.checklists.bac = defaultBac;
+    }
+    const path = `/transactions/${transaction.id}`;
+    const initial = await success(path, { cookie: auditor });
+    assert.deepEqual(initial.checklist.map(({ label, checklist_group }) => [label, checklist_group]), expected);
+
+    const saved = await success(`${path}/checklist`, patch({ revision: initial.revision, new_label: 'APP/SPP' }, auditor));
+    const custom = saved.checklist.find((item) => item.custom);
+    assert.equal(custom.checklist_group, 'others');
+  });
 });

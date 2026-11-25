@@ -35,4 +35,4 @@ Chromium verified the 63 configured BAC requirements and a 68-requirement fixtur
 
 Browser checks verified keyboard state changes, existing saved selections, populated badges including zero and false values, dialog validation, Enter and OK confirmation, Escape cancellation, and focus restoration. Confirmed badges and checkbox edits survived a separate transaction details save and a checklist revision conflict. The saved checklist retained attribution, and only applicable unchecked requirements appeared in the suspension review and certification warning.
 
-All 15 PostgreSQL-backed tests passed, including exact suspension-slip reprints.
+Chromium also verified an alternate BAC checklist with a document inserted inside a group and a 200-character transaction reference with no horizontal overflow. All 16 PostgreSQL-backed tests passed, including the alternate checklist regression test and exact suspension-slip reprints.

@@ -45,6 +45,7 @@ nav a:hover, nav a[aria-current] { border-color: #9bd3b8; color: white; }
 .account button:hover { background: #245b52; }
 .workspace { max-width: 1250px; padding: 2rem 1.5rem 4rem; margin: auto; }
 .page-heading { display: flex; justify-content: space-between; align-items: end; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.4rem; }
+.page-heading > :first-child { min-width: 0; overflow-wrap: anywhere; }
 .page-heading p { margin-top: .35rem; }
 .back { display: inline-block; margin-bottom: .8rem; }
 

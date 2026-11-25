@@ -497,8 +497,13 @@ function checklistRows(items, editable, type, documentDrafts) {
   const list = (rows) => `<ul class="checklist-rows" role="list">${rows.map((item) =>
     checklistRow(item, editable, documentDrafts.get(item.id))).join('')}</ul>`;
   if (type !== 'bac') return list(items);
+  const grouped = new Map(Object.keys(bacGroupLabels).map((group) => [group, []]));
+  for (const item of items) {
+    const rows = grouped.get(item.checklist_group) ?? grouped.get('others');
+    rows.push(item);
+  }
   const groups = Object.entries(bacGroupLabels).map(([group, title]) => {
-    const rows = items.filter((item) => item.checklist_group === group);
+    const rows = grouped.get(group);
     if (!rows.length) return '';
     return `<section class="checklist-group" data-group="${group}" aria-labelledby="checklist-${group}">
       <h3 id="checklist-${group}">${title}</h3>${list(rows)}
