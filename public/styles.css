@@ -67,9 +67,10 @@ nav a:focus-visible { outline-offset: -3px; }
   position: sticky; top: 0; z-index: 2;
   max-height: 50dvh; overflow: auto;
 }
-.transaction-summary > h1, .transaction-summary > .project-reference {
+.transaction-summary :is(h1, .project-reference) {
   font-size: 1rem; font-weight: 700; line-height: inherit; overflow-wrap: anywhere;
 }
+.transaction-summary .project-location { overflow-wrap: anywhere; }
 .transaction-badges {
   display: flex; flex-wrap: wrap; align-items: center; gap: .375rem .5rem;
   margin-top: .375rem;
@@ -77,7 +78,7 @@ nav a:focus-visible { outline-offset: -3px; }
 .transaction-badges .badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .transaction-badges + .definition-grid { margin-top: .625rem; }
 @media (min-width: 48rem) {
-  .new-project-form { width: 50vw; margin-inline: auto; }
+  .new-project-form, .new-transaction-form { width: 50vw; margin-inline: auto; }
 }
 .login { margin: 1.5rem auto 0; max-width: 24rem; }
 .login h1 { margin-bottom: .25rem; }

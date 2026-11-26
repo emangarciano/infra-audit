@@ -141,6 +141,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.deepEqual(await success('/projects', { cookie: intake }), []);
     const north = await success('/projects', post({
       title: 'North bridge', reference: 'CAP-N100', contractor: 'North Builders', contract_amount: '100',
+      barangay: 'San Isidro', municipality: 'Sample municipality',
     }, intake), 201);
     const south = await success('/projects', post({
       title: 'South road', reference: 'CAP-S200', contractor: 'South Builders', contract_amount: '100',
@@ -148,6 +149,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     const search = (query) => success(`/projects?${new URLSearchParams({ q: query })}`, { cookie: intake });
     assert.deepEqual(await search('  OrTh Bri  '), [{
       id: north.id, title: 'North bridge', reference: 'CAP-N100', contractor: 'North Builders', contract_amount: '100.00',
+      barangay: 'San Isidro', municipality: 'Sample municipality',
     }]);
     assert.deepEqual((await search('s200')).map(({ id }) => id), [south.id]);
     assert.deepEqual(await search('South Builders'), []);
@@ -398,7 +400,10 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
         assert.equal(existingTransaction.project_id, id);
         assert.equal(existingTransaction.obligation_request_reference, null);
         const matches = await (await send('/projects?q=old%20bri', undefined, cookie)).json();
-        assert.deepEqual(matches, [{ id, title: 'Old bridge', reference: null, contractor: null, contract_amount: null }]);
+        assert.deepEqual(matches, [{
+          id, title: 'Old bridge', reference: null, contractor: null, contract_amount: null,
+          barangay: null, municipality: null,
+        }]);
         const stations = await (await send('/projects?q=Legacy%20station', undefined, cookie)).json();
         assert.deepEqual(stations.map(({ contractor }) => contractor), ['Old Builders', 'Old Builders']);
         const { contractors } = await (await send('/lookups', undefined, cookie)).json();

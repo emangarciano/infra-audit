@@ -575,6 +575,14 @@ function displayNewProject() {
   });
 }
 
+function newTransactionProjectSummary(project) {
+  const location = [project?.barangay, project?.municipality].filter(Boolean).join(', ');
+  return `<h1 tabindex="-1">${escape(project?.title ?? 'New Transaction')}</h1>
+    ${project?.reference ? `<p class="project-reference">${escape(project.reference)}</p>` : ''}
+    ${location ? `<p class="muted project-location">${escape(location)}</p>` : ''}
+    ${project ? `<div class="transaction-badges">${badge('New Transaction')}</div>` : ''}`;
+}
+
 function displayNewTransaction(projectId) {
   const assigned = lookups.auditors.filter(({ assignable }) => assignable).map(({ id, display_name }) => [id, display_name]);
   const projects = lookups.projects;
@@ -584,40 +592,38 @@ function displayNewTransaction(projectId) {
     ? '<p>An active auditor account is required for assignment.</p>'
     : '<p><a href="#new-project">Create a project</a> to register its first transaction.</p>';
   const back = selectedProject ? backLink(`project/${selectedProject.id}`, selectedProject.title) : backLink('projects', 'Projects');
-  mount(`${back}${heading('New transaction', '', user.role === 'intake' ? 'New transactions start Pending.' : 'New transactions start Under Audit.')}
-    ${canRegister ? `<form class="panel stack"><div class="grid">
-      <div class="project-field">
-        <strong>Project (required)</strong>
-        <p id="selected-project" aria-live="polite">${selectedProject
-          ? escape(projectLabel(selectedProject.title, selectedProject.reference)) : 'No project selected'}</p>
-        <input type="hidden" name="project_id" value="${selectedProject?.id ?? ''}">
-        <button type="button" id="choose-project" aria-haspopup="dialog"
+  mount(`${back}<section class="panel transaction-summary">
+    <div id="selected-project" aria-live="polite" aria-atomic="true">${newTransactionProjectSummary(selectedProject)}</div>
+    ${canRegister ? `<div class="actions transaction-actions">
+        <button type="button" id="choose-project" aria-haspopup="dialog" aria-controls="project-picker"
           aria-describedby="selected-project">Choose project</button>
+        ${user.role === 'intake' ? '<p class="muted">New transactions start Pending.</p>' : ''}
         <p id="project-selection-error" role="alert" hidden>Choose a project to register this transaction.</p>
-      </div>
+      </div>` : ''}
+    </section>
+    ${canRegister ? `<form class="panel stack new-transaction-form">
+      <input type="hidden" name="project_id" value="${escape(selectedProject?.id)}">
       ${select('Type', 'type', [['', 'Select a type'], ...Object.entries(lookups.types)], '', 'required')}
-      ${field('Obligation request reference (optional)', 'obligation_request_reference', '', 'maxlength="200"')}
-      ${field('Received or created date', 'received_on', today(), 'required', 'date')}
       ${user.role === 'intake'
         ? select('Assigned auditor', 'assigned_auditor_id', [['', 'Select an auditor'], ...assigned], '', 'required')
         : field('Assigned auditor', 'assigned_display', user.displayName, 'readonly')}
-    </div>${isAuditRole() ? remarks('Notes', 'notes', '', 2500) : ''}
+      ${isAuditRole() ? remarks('Notes', 'notes', '', 2500) : ''}
     <div class="actions"><button class="primary" type="submit">Register transaction</button></div></form>
     <dialog id="project-picker" aria-labelledby="project-picker-title"></dialog>`
       : `<section class="panel">${precondition}</section>`}`);
   const form = screen.querySelector('form');
   if (!form) return;
 
-  const picker = form.querySelector('#choose-project');
-  const selection = form.querySelector('#selected-project');
-  const selectionError = form.querySelector('#project-selection-error');
+  const picker = screen.querySelector('#choose-project');
+  const selection = screen.querySelector('#selected-project');
+  const selectionError = screen.querySelector('#project-selection-error');
   const pickerDialog = screen.querySelector('#project-picker');
   picker.addEventListener('click', () => {
     pickerDialog.innerHTML = `<div class="stack"><h2 id="project-picker-title">Choose project</h2>
       ${projectBrowser(true)}<div class="actions"><button type="button" data-cancel-pick>Cancel</button></div></div>`;
     bindProjectBrowser(pickerDialog.querySelector('[data-project-browser]'), projects, (project) => {
       form.elements.project_id.value = project.id;
-      selection.textContent = projectLabel(project.title, project.reference);
+      selection.innerHTML = newTransactionProjectSummary(project);
       selectionError.hidden = true;
       picker.setAttribute('aria-describedby', 'selected-project');
       pickerDialog.close();
@@ -638,7 +644,7 @@ function displayNewTransaction(projectId) {
       picker.focus();
       return;
     }
-    const record = await saveNew('/transactions', body);
+    const record = await saveNew('/transactions', { ...body, received_on: today() });
     if (record) location.hash = `transaction/${record.id}`;
   });
 }
