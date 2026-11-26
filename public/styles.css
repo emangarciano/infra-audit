@@ -232,6 +232,11 @@ dd { margin: .125rem 0 0; overflow-wrap: anywhere; }
 }
 summary { cursor: pointer; color: var(--accent); font-weight: 650; }
 .changes { margin: .3rem 0; }
+.checklist-changes { margin: .3rem 0; table-layout: fixed; }
+.checklist-changes th { white-space: normal; overflow-wrap: anywhere; }
+.checklist-changes thead th { border-bottom-color: #a8bbb6; }
+.checklist-changes tbody th { background: transparent; color: inherit; font-size: inherit; }
+.checklist-changes tbody tr:last-child th { border-bottom: 0; }
 .copy-field { display: flex; align-items: end; gap: .4rem; }
 .copy-field label { flex: 1; }
 .copy-field + .copy-field { margin-top: .5rem; }

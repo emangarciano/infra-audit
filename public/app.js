@@ -852,26 +852,51 @@ function copyField(label, value) {
     <button type="button" data-copy aria-label="Copy ${escape(label)}">Copy</button></div>`;
 }
 
+function checklistChangeFields(before, after) {
+  const stateLabel = (item) => checklistStateLabels[item.state] ?? item.state;
+  const fields = [
+    ['State', before && stateLabel(before), after && stateLabel(after)],
+    ['Remarks', before?.remarks || '—', after?.remarks || '—'],
+  ];
+  const beforeReasons = before?.compliance_reasons?.join(', ') || '—';
+  const afterReasons = after?.compliance_reasons?.join(', ') || '—';
+  if (beforeReasons !== afterReasons) fields.push(['Needing compliance reasons', beforeReasons, afterReasons]);
+  const beforeDetails = before?.compliance_details ?? null;
+  const afterDetails = after?.compliance_details ?? null;
+  if (beforeDetails !== afterDetails) {
+    fields.push(['Additional details', beforeDetails ?? '(empty)', afterDetails ?? '(empty)']);
+  }
+  for (const key of Object.keys({ ...before?.document_fields, ...after?.document_fields })) {
+    const previous = before?.document_fields?.[key];
+    const next = after?.document_fields?.[key];
+    if (previous !== next) fields.push([key.replaceAll('_', ' '), documentFieldValue(previous), documentFieldValue(next)]);
+  }
+  return fields;
+}
+
+function checklistChangeDetails(changes) {
+  const rows = changes.map(({ before, after }) => {
+    const fields = checklistChangeFields(before, after);
+    const valuesFor = (side) => fields.map(([label, previous, next]) =>
+      `<div><strong>${escape(label)}:</strong> ${escape(side === 'before' ? previous : next)}</div>`).join('');
+    const addition = before ? '' : '<div><strong>Added requirement</strong></div>';
+    return `<tr><th scope="row">${escape((after ?? before).label)}</th>
+      <td>${before ? valuesFor('before') : '—'}</td>
+      <td>${addition}${after ? valuesFor('after') : 'Removed requirement'}</td></tr>`;
+  }).join('');
+  return `<details><summary>View changes</summary><table class="checklist-changes">
+    <thead><tr><th scope="col">Document</th><th scope="col">Previous</th><th scope="col">Change</th></tr></thead>
+    <tbody>${rows}</tbody></table></details>`;
+}
+
 function changeDetails(changes, kind) {
   if (!changes) return '';
-  const stateLabel = (item) => checklistStateLabels[item.state] ?? item.state;
+  if (kind === 'checklist' && Array.isArray(changes)) return checklistChangeDetails(changes);
   const lines = Array.isArray(changes)
-    ? changes.map(({ before, after }) => {
-      if (!before) return `Added requirement ${after.label} (${stateLabel(after)}).`;
-      if (!after) return `Removed requirement ${before.label} (${stateLabel(before)}). Remarks: ${before.remarks || '—'}.`;
-      const beforeReasons = before.compliance_reasons?.join(', ') || '—';
-      const afterReasons = after.compliance_reasons?.join(', ') || '—';
-      const beforeDetails = before.compliance_details ?? null;
-      const afterDetails = after.compliance_details ?? null;
-      return [
-        `${after.label}. State: ${stateLabel(before)} → ${stateLabel(after)}. Remarks: ${before.remarks || '—'} → ${after.remarks || '—'}.`,
-        beforeReasons === afterReasons ? '' : `Needing compliance reasons: ${beforeReasons} → ${afterReasons}.`,
-        beforeDetails === afterDetails ? '' : `Additional details: ${beforeDetails ?? '(empty)'} → ${afterDetails ?? '(empty)'}.`,
-        ...Object.keys({ ...before.document_fields, ...after.document_fields })
-          .filter((key) => before.document_fields?.[key] !== after.document_fields?.[key])
-          .map((key) => `${key.replaceAll('_', ' ')}: ${documentFieldValue(before.document_fields?.[key])} → ${documentFieldValue(after.document_fields?.[key])}.`),
-      ].filter(Boolean).join(' ');
-    })
+    ? changes.map(({ before, after }) => [
+      `${after.label}.`,
+      ...checklistChangeFields(before, after).map(([label, previous, next]) => `${label}: ${previous} → ${next}.`),
+    ].join(' '))
     : Object.entries(changes).map(([field, { before, after }]) => {
       const label = field === 'reference' && kind === 'project_correction' ? 'Project reference' : fieldLabels[field] ?? field;
       return `${label}: ${before ?? '—'} → ${after ?? '—'}`;
@@ -1030,7 +1055,7 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
     draftReview.textContent = 'The shared checklist changed while this draft was open. Review the saved and draft values before using Save checklist.';
     draftReview.append(latestChecklistLink());
     if (differences.length) {
-      draftReview.insertAdjacentHTML('beforeend', changeDetails(differences, 'checklist'));
+      draftReview.insertAdjacentHTML('beforeend', changeDetails(differences));
       draftReview.querySelector('details').open = true;
     }
     if (removedEdits.length) {
