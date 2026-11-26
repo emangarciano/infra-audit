@@ -947,19 +947,25 @@ function displayTransaction(record, { checklistOpen = true, checklistDraft, save
   const checklistItems = audit ? applyChecklistEdits(record.checklist, draft?.items) : [];
   const itemsNeedingCompliance = audit
     ? checklistItems.filter(({ state }) => state === 'Unchecked').length : record.items_needing_compliance;
-  const summary = `<section class="panel"><h2>Transaction summary</h2><dl class="definition-grid">
+  const transactionType = record.type === 'bac' ? 'BAC Documentation' : lookups.types[record.type];
+  const actions = savedChecklist ? '' : transactionActions(record);
+  const summary = `<section class="panel transaction-summary">
+    <h1 tabindex="-1">Transaction summary</h1>
+    <h2 class="transaction-project-name">${escape(record.project)}</h2>
+    <div class="transaction-badges">
+      ${record.project_reference ? `<span class="badge">${escape(record.project_reference)}</span>` : ''}
+      <span class="badge transaction-type">${escape(transactionType)}</span>
+    </div>
+    <dl class="definition-grid">
       ${record.obligation_request_reference ? `<div><dt>Obligation request reference</dt><dd>${escape(record.obligation_request_reference)}</dd></div>` : ''}
       <div><dt>Assigned auditor</dt><dd>${escape(record.assigned_auditor)}</dd></div>
       <div><dt>Status</dt><dd>${badge(record.status, record.voided)}</dd></div>
       <div aria-live="polite" aria-atomic="true"><dt>Items needing compliance:</dt><dd id="compliance-count">${itemsNeedingCompliance}</dd></div>
-    </dl>${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}</section>`;
+    </dl>${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}
+    ${actions ? `<div class="actions form-actions">${actions}</div>` : ''}
+  </section>`;
   const checklist = audit ? checklistPanel(checklistItems, editable, record.type, checklistOpen) : '';
-  const transactionType = record.type === 'bac' ? 'BAC Documentation' : lookups.types[record.type];
   mount(`${backLink(`project/${record.project_id}`, record.project)}
-    <div class="page-heading transaction-heading"><div>
-      <h1 tabindex="-1">${escape(record.project)}</h1>
-      <span class="badge transaction-type">${escape(transactionType)}</span>
-    </div><div class="actions">${savedChecklist ? '' : transactionActions(record)}</div></div>
     ${savedChecklist ? '<p class="muted">Latest saved checklist</p>' : ''}${summary}${checklist}
     ${editable ? `<section class="panel"><h2>Transaction details</h2><form id="transaction-details" class="stack">
       <div class="grid">
