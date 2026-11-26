@@ -258,14 +258,15 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal(underAudit.assigned_auditor_id, credentials['auditor-b']);
     assert.equal(underAudit.status, 'Under Audit');
     const supervisorCreated = await success('/transactions', post({
-      ...body, received_on: '2026-11-10',
+      ...body, received_on: '2026-11-11',
     }, supervisor), 201);
     const supervisorRecord = await success(`/transactions/${supervisorCreated.id}`, { cookie: intake });
     assert.equal(supervisorRecord.status, 'Under Audit');
     assert.equal(supervisorRecord.assigned_auditor_id, credentials.supervisor);
     assert.equal(supervisorRecord.history[0].new_status, 'Under Audit');
     const refreshedProject = await success(`/projects/${project.id}`, { cookie: intake });
-    assert.equal(refreshedProject.transactions.find(({ id }) => id === supervisorCreated.id).status, 'Under Audit');
+    assert.equal(refreshedProject.transactions[0].id, supervisorCreated.id);
+    assert.equal(refreshedProject.transactions[0].status, 'Under Audit');
     const byProjectReference = await success('/transactions?q=pw-101', { cookie: intake });
     assert.deepEqual([...new Set(byProjectReference.map((item) => item.project_id))], [project.id]);
     assert.equal(byProjectReference[0].project_reference, fields.reference);
@@ -292,7 +293,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     }
     await success(`${path}/actions/start`, post(action, otherAuditor));
     const { transactions } = await success(`/projects/${before.project_id}`, { cookie: intake });
-    assert.equal(transactions.at(-1).id, record.id, 'Starting an older transaction preserves registration order');
+    assert.equal(transactions[0].id, record.id, 'A newly recorded status change moves the transaction to the top');
     const after = await success(path, { cookie: intake });
     assert.equal(after.status, 'Under Audit');
     assert.equal(after.latest_action_on, action.actual_on);

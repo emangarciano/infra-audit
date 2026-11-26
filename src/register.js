@@ -185,7 +185,7 @@ export async function readProject(client, user, projectId) {
   if (!project) throw new RequestError(404, 'Project not found.');
   const { rows } = await client.query(`
     SELECT ${txColumns} FROM ${txTables}
-    WHERE t.project_id = $2 ORDER BY t.id DESC
+    WHERE t.project_id = $2 ORDER BY movement.id DESC
   `, [movementKinds, projectId]);
   const transactions = rows.map(summary);
   if (intake) return { ...project, transactions };
