@@ -24,7 +24,8 @@ const actionLabels = {
   resume: 'Audit resumed', certify: 'Marked Audited', void: 'Duplicate voided',
 };
 const fieldLabels = {
-  title: 'Project name', contractor: 'Contractor', contract_amount: 'Contract amount',
+  title: 'Project name', barangay: 'Barangay', municipality: 'Municipality',
+  contractor: 'Contractor', contract_amount: 'Contract amount',
   contract_date: 'Contract date', contract_duration: 'Contract duration',
   obligation_request_reference: 'Obligation request reference',
   reference: 'Reference or title', received_on: 'Received or created date', notes: 'Transaction notes',
@@ -547,8 +548,10 @@ function bindContractorPicker(form) {
 function projectFields(record = {}, creating = false) {
   const required = creating ? 'required' : '';
   const name = field('Project name', 'title', record.title, 'required maxlength="200"');
+  const barangay = field('Barangay (optional)', 'barangay', record.barangay, 'maxlength="200"');
+  const municipality = field('Municipality (optional)', 'municipality', record.municipality, 'maxlength="200"');
   const reference = field('Project reference', 'reference', record.reference, `maxlength="200" ${required}`);
-  return `${(creating ? [name, reference] : [reference, name]).join('')}
+  return `${(creating ? [name, barangay, municipality, reference] : [reference, name, barangay, municipality]).join('')}
     ${contractorPicker(record, creating)}
     ${field('Contract amount (₱)', 'contract_amount', record.contract_amount, `${pesoAmountAttributes} ${required}`)}`;
 }

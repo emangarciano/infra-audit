@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS projects (
 
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS reference text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS contractor_id integer REFERENCES contractors;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS barangay text;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS municipality text;
 
 DO $$
 BEGIN

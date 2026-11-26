@@ -26,7 +26,7 @@ const txTables = `
 `;
 const projectSummaryColumns = `id, title, reference`;
 const projectColumns = `
-  p.id, title, reference, contractor_id, c.name AS contractor, contract_amount, contract_date::text,
+  p.id, title, barangay, municipality, reference, contractor_id, c.name AS contractor, contract_amount, contract_date::text,
   contract_duration, revision, created_by, updated_by, created_at, updated_at
 `;
 const projectTables = 'projects p LEFT JOIN contractors c ON c.id = p.contractor_id';
@@ -41,6 +41,9 @@ function projectFields(body, previous) {
   if (required && contractAmount === null) throw new RequestError(400, 'Contract amount is required.');
   return {
     title: text(Object.hasOwn(body, 'title') ? body.title : previous.title, 'Project name', 200, true),
+    barangay: Object.hasOwn(body, 'barangay') ? text(body.barangay, 'Barangay', 200) : previous.barangay ?? null,
+    municipality: Object.hasOwn(body, 'municipality')
+      ? text(body.municipality, 'Municipality', 200) : previous.municipality ?? null,
     reference: Object.hasOwn(body, 'reference') || required
       ? text(body.reference, 'Project reference', 200, required) : previous.reference,
     contract_amount: contractAmount,
@@ -156,8 +159,10 @@ export async function listProjects(client, query) {
 }
 
 export async function createProject(client, user, body) {
-  const { title, reference, contract_amount } = body;
-  const values = projectFields(auditRoles.includes(user.role) ? body : { title, reference, contract_amount });
+  const { title, barangay, municipality, reference, contract_amount } = body;
+  const values = projectFields(auditRoles.includes(user.role) ? body : {
+    title, barangay, municipality, reference, contract_amount,
+  });
   await client.query('SELECT pg_advisory_xact_lock(712, hashtext(lower($1)))', [values.reference]);
   const contractor = await projectContractor(client, body);
   if (body.allow_duplicate !== true) {
@@ -170,8 +175,9 @@ export async function createProject(client, user, body) {
     }
   }
   const result = await client.query(`
-    INSERT INTO projects (title, reference, contract_amount, contract_date, contract_duration, contractor_id, created_by, updated_by)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING ${projectSummaryColumns}
+    INSERT INTO projects (title, barangay, municipality, reference, contract_amount, contract_date,
+      contract_duration, contractor_id, created_by, updated_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) RETURNING ${projectSummaryColumns}
   `, [...Object.values(values), contractor.id, user.id]);
   return result.rows[0];
 }
@@ -206,8 +212,9 @@ export async function correctProject(client, user, projectId, body) {
   const changes = diff(current, { ...values, contractor: contractor.name });
   if (Object.keys(changes).length) {
     await client.query(`
-      UPDATE projects SET title = $2, reference = $3, contract_amount = $4, contract_date = $5,
-        contract_duration = $6, contractor_id = $7, revision = revision + 1, updated_by = $8, updated_at = clock_timestamp()
+      UPDATE projects SET title = $2, barangay = $3, municipality = $4, reference = $5, contract_amount = $6,
+        contract_date = $7, contract_duration = $8, contractor_id = $9, revision = revision + 1,
+        updated_by = $10, updated_at = clock_timestamp()
       WHERE id = $1
     `, [projectId, ...Object.values(values), contractor.id, user.id]);
     await event(client, user, { project_id: projectId, id: null }, 'project_correction', {
