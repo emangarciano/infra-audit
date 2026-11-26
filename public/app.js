@@ -237,8 +237,10 @@ function projectTransactions(projectId, rows) {
   const active = rows.filter(({ voided }) => !voided);
   const voided = rows.filter((row) => row.voided);
   return `<section class="panel stack" aria-labelledby="project-transactions">
-    <h2 id="project-transactions">Transactions</h2>
-    <div class="actions"><a class="button primary" href="#new-transaction/${projectId}">New transaction</a></div>
+    <div class="actions">
+      <h2 id="project-transactions">Transactions</h2>
+      <a class="button primary" href="#new-transaction/${projectId}">New transaction</a>
+    </div>
     ${active.length ? transactionTable(active, 'Active transactions')
       : `<p class="empty">${voided.length ? 'No active transactions for this project.' : 'No transactions for this project.'}</p>`}
     ${voided.length ? `<details><summary>Voided transactions (${voided.length})</summary>
@@ -543,6 +545,7 @@ function bindContractorPicker(form) {
     const match = findMatch();
     chooseContractor(match?.id, match?.name ?? name);
   });
+  return chooser;
 }
 
 function projectFields(record = {}, creating = false) {
@@ -575,11 +578,15 @@ function displayNewProject() {
   });
 }
 
+function projectLocation({ barangay, municipality } = {}) {
+  const location = [barangay, municipality].filter(Boolean).join(', ');
+  return location ? `<p class="muted project-location">${escape(location)}</p>` : '';
+}
+
 function newTransactionProjectSummary(project) {
-  const location = [project?.barangay, project?.municipality].filter(Boolean).join(', ');
   return `<h1 tabindex="-1">${escape(project?.title ?? 'New Transaction')}</h1>
     ${project?.reference ? `<p class="project-reference">${escape(project.reference)}</p>` : ''}
-    ${location ? `<p class="muted project-location">${escape(location)}</p>` : ''}
+    ${projectLocation(project)}
     ${project ? `<div class="transaction-badges">${badge('New Transaction')}</div>` : ''}`;
 }
 
@@ -592,9 +599,9 @@ function displayNewTransaction(projectId) {
     ? '<p>An active auditor account is required for assignment.</p>'
     : '<p><a href="#new-project">Create a project</a> to register its first transaction.</p>';
   const back = selectedProject ? backLink(`project/${selectedProject.id}`, selectedProject.title) : backLink('projects', 'Projects');
-  mount(`${back}<section class="panel transaction-summary">
+  mount(`${back}<section class="panel record-summary">
     <div id="selected-project" aria-live="polite" aria-atomic="true">${newTransactionProjectSummary(selectedProject)}</div>
-    ${canRegister ? `<div class="actions transaction-actions">
+    ${canRegister ? `<div class="actions summary-actions">
         <button type="button" id="choose-project" aria-haspopup="dialog" aria-controls="project-picker"
           aria-describedby="selected-project">Choose project</button>
         ${user.role === 'intake' ? '<p class="muted">New transactions start Pending.</p>' : ''}
@@ -649,30 +656,69 @@ function displayNewTransaction(projectId) {
   });
 }
 
-function displayProject(record) {
+function displayProject(record, focusHeading = true) {
   if (record.contractor_id && !lookups.contractors.some(({ id }) => id === record.contractor_id)) {
     lookups.contractors.push({ id: record.contractor_id, name: record.contractor });
     lookups.contractors.sort((a, b) => a.name.localeCompare(b.name));
   }
-  mount(`${backLink('projects', 'Projects')}${heading(projectLabel(record.title, record.reference))}
-    ${isAuditRole() ? `<form id="project-form" class="panel"><h2>Project details</h2>
-      <div class="grid project-details-grid"><div class="stack">${projectFields(record)}</div></div>
-      <div class="actions form-actions"><button class="primary" type="submit">Save project details</button></div>
-      <div class="notice error form-actions" role="alert" tabindex="-1" hidden></div></form>` : ''}
-    ${projectTransactions(record.id, record.transactions)}`);
-  const form = screen.querySelector('#project-form');
-  if (!form) return;
-  bindContractorPicker(form);
+  const audit = isAuditRole();
+  mount(`${backLink('projects', 'Projects')}<section class="panel record-summary">
+    ${record.reference ? `<p class="project-reference">${escape(record.reference)}</p>` : ''}
+    <h1 tabindex="-1">${escape(record.title)}</h1>
+    ${audit ? `${projectLocation(record)}
+      <dl class="project-details">
+        <div><dt>Contractor</dt><dd>${escape(record.contractor ?? 'No contractor recorded')}</dd></div>
+        <div><dt>Contract amount</dt><dd>${record.contract_amount == null ? '—' : pesoCurrency.format(record.contract_amount)}</dd></div>
+      </dl>
+      <div class="actions summary-actions">
+        <button class="icon-button" id="edit-project" type="button" aria-haspopup="dialog" aria-controls="action-dialog">Edit
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m14 6 4 4M4 20l4.5-1 11-11a2.83 2.83 0 0 0-4-4l-11 11L4 20Z"/>
+          </svg></button>
+      </div>` : ''}
+    </section>
+    ${projectTransactions(record.id, record.transactions)}`, focusHeading);
+  screen.querySelector('#edit-project')?.addEventListener('click', () => openProjectEditor(record));
+}
+
+function openProjectEditor(record) {
+  dialog.innerHTML = `<h2 id="dialog-title">Edit project details</h2>
+    <form class="stack">
+      <div class="notice error" role="alert" tabindex="-1" hidden></div>
+      ${projectFields(record)}
+      <div class="actions">
+        <button class="primary" type="submit">Save project details</button>
+        <button id="cancel-project-edit" type="button">Cancel</button>
+      </div>
+    </form>`;
+  const form = dialog.querySelector('form');
+  const chooser = bindContractorPicker(form);
+  const cancel = form.querySelector('#cancel-project-edit');
+  const handleCancel = (event) => {
+    if (cancel.disabled) event.preventDefault();
+  };
+  dialog.addEventListener('cancel', handleCancel);
+  dialog.addEventListener('close', () => {
+    chooser.close();
+    dialog.removeEventListener('cancel', handleCancel);
+  }, { once: true });
+  cancel.addEventListener('click', () => dialog.close());
   submit(form, async (body) => {
     const selectedName = body.contractor;
     if (record.contractor && selectedName && contractorSearchKey(selectedName) !== contractorSearchKey(record.contractor) &&
         !window.confirm(`Change the contractor from ${record.contractor} to ${selectedName}?`)) return;
     const version = navigationVersion;
-    const updated = await api(`/projects/${record.id}`, 'PATCH', { ...body, revision: record.revision });
+    cancel.disabled = true;
+    const updated = await api(`/projects/${record.id}`, 'PATCH', { ...body, revision: record.revision })
+      .finally(() => { cancel.disabled = false; });
     if (version !== navigationVersion) return;
-    displayProject(updated);
+    dialog.close();
+    displayProject(updated, false);
+    screen.querySelector('#edit-project').focus();
     showNotice('Project details saved.');
   }, { localError: form.querySelector('.notice'), conflict: `#project/${record.id}` });
+  dialog.showModal();
 }
 
 const checklistStateLabels = { 'N/A': 'N/A', Checked: 'Complied', Unchecked: 'Not Complied' };
@@ -1044,7 +1090,7 @@ function displayTransaction(record, {
     ? checklistItems.filter(({ state }) => state === 'Unchecked').length : record.items_needing_compliance;
   const transactionType = record.type === 'bac' ? 'BAC Documentation' : lookups.types[record.type];
   const actions = savedChecklist ? '' : transactionActions(record);
-  const summary = `<section class="panel transaction-summary">
+  const summary = `<section class="panel record-summary">
     <h1 tabindex="-1">${escape(record.project)}</h1>
     ${record.project_reference ? `<p class="project-reference">${escape(record.project_reference)}</p>` : ''}
     <div class="transaction-badges">
@@ -1056,8 +1102,8 @@ function displayTransaction(record, {
       <div><dt>Obligation request reference</dt><dd>${escape(record.obligation_request_reference)}</dd></div>
     </dl>` : ''}
     ${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}
-    ${editable || actions ? `<div class="actions transaction-actions">
-      ${editable ? `<button id="save-checklist" class="primary" type="submit" form="checklist-form">
+    ${editable || actions ? `<div class="actions summary-actions">
+      ${editable ? `<button id="save-checklist" class="primary icon-button" type="submit" form="checklist-form">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M5 3h12l4 4v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z M7 3v6h10V3 M7 21v-8h10v8"/>
