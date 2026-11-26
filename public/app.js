@@ -700,7 +700,7 @@ function documentFields(item) {
 
 function documentBadges(item, values) {
   const details = item.field_definitions.map(({ key, label }) => [label, values.document_fields[key]]);
-  details.push(['Remarks', values.remarks]);
+  details.push(['Needing compliance', complianceDescription(values)], ['Remarks', values.remarks]);
   return details.filter(([, value]) => value != null && String(value).trim() !== '').map(([label, value]) =>
     `<span class="badge"><strong>${escape(label)}</strong> ${escape(documentFieldValue(value))}</span>`).join('');
 }
