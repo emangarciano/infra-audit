@@ -937,7 +937,7 @@ function transactionActions(record) {
     if (record.status === 'Pending') actions.push(['start', 'Start Audit']);
     if (record.status === 'Under Audit') actions.push(['suspend', 'Suspend'], ['certify', 'Mark Audited']);
     if (record.status === 'Resubmitted') actions.push(['resume', 'Resume Audit']);
-    actions.push(['void', 'Void duplicate']);
+    actions.push(['void', 'Void']);
   }
   return actions.map(([value, label]) => `<button class="${value === 'void' ? 'danger' : 'primary'}" data-action="${value}" type="button">${label}</button>`).join('');
 }
@@ -980,7 +980,7 @@ function displayTransaction(record, { checklistOpen = true, checklistDraft, save
     <div class="transaction-badges">
       <span class="badge">${escape(transactionType)}</span>
       ${badge(record.status, record.voided)}
-      <span class="badge" aria-live="polite" aria-atomic="true">Unchecked items: <span id="compliance-count">${itemsNeedingCompliance}</span></span>
+      <span class="badge${itemsNeedingCompliance > 0 ? ' has-unchecked-items' : ''}" aria-live="polite" aria-atomic="true">Unchecked items: <span id="compliance-count">${itemsNeedingCompliance}</span></span>
     </div>
     ${record.obligation_request_reference ? `<dl class="definition-grid">
       <div><dt>Obligation request reference</dt><dd>${escape(record.obligation_request_reference)}</dd></div>
@@ -1101,8 +1101,11 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
   checklistForm.addEventListener('input', (event) => {
     const row = event.target.closest('.checklist-row');
     if (row) syncChecklistRow(row, event.target);
-    const count = String(checklistForm.querySelectorAll('.checklist-row[data-state="Unchecked"]').length);
-    if (complianceCount.textContent !== count) complianceCount.textContent = count;
+    const count = checklistForm.querySelectorAll('.checklist-row[data-state="Unchecked"]').length;
+    if (complianceCount.textContent !== String(count)) {
+      complianceCount.textContent = String(count);
+      complianceCount.parentElement.classList.toggle('has-unchecked-items', count > 0);
+    }
     cacheChecklist();
   });
   detailsForm.addEventListener('input', () => { detailsDirty = true; });

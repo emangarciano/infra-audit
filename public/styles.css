@@ -114,6 +114,8 @@ button:disabled { cursor: wait; opacity: .65; }
 .primary:hover { background: #0c4e44; }
 .danger { color: var(--danger); border-color: #bc828a; }
 .danger:hover { background: #faeaed; }
+.transaction-actions [data-action="suspend"] { background: #fbe6d9; color: #823611; border-color: #cc936f; }
+.transaction-actions [data-action="suspend"]:hover { background: #f7d7c2; }
 .link { background: transparent; border: 0; text-decoration: underline; }
 
 .notice {
@@ -174,6 +176,7 @@ td a { font-weight: 650; }
   display: inline-block; white-space: nowrap; border-radius: var(--radius); padding: .0625rem .375rem;
   background: #e4f1ef; color: #18564c; font-size: .75rem; font-weight: 700;
 }
+.badge.has-unchecked-items { background: #f9e6e7; color: var(--danger); }
 .suspended { background: #fbe6d9; color: #823611; }
 .resubmitted { background: #fff0c6; color: #694810; }
 .audited { background: #dff2e4; color: #205c37; }
