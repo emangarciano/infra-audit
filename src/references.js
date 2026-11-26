@@ -49,15 +49,15 @@ li { margin-bottom: .6rem; break-inside: avoid; }
 </style>
 <main>
 <p class="print-help">Use your browser’s Print command to print this slip.</p>
-<p><strong>Development fixture · For testing only</strong></p>
 <h1>Suspension slip</h1>
 <dl>
 <dt>Project</dt><dd>{{project}}</dd>
-<dt>Transaction</dt><dd>{{transaction}} · {{type}}</dd>
+<dt>Project reference number</dt><dd>{{projectreference}}</dd>
+<dt>Transaction type</dt><dd>{{type}}</dd>
 <dt>Action date</dt><dd>{{date}}</dd>
 <dt>Issued by</dt><dd>{{issuer}}</dd>
 </dl>
-<h2>Unchecked requirements</h2>
+<h2>Needing compliance:</h2>
 {{requirements}}
 {{remarks}}
 </main></html>`;
@@ -106,6 +106,7 @@ export async function loadReferences(env = process.env) {
 export function renderSlip(layout, snapshot) {
   const values = {
     project: escapeHtml(snapshot.project),
+    projectreference: escapeHtml(snapshot.projectReference),
     transaction: escapeHtml(snapshot.reference),
     type: escapeHtml(types[snapshot.type]),
     date: escapeHtml(snapshot.actualOn),

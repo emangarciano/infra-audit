@@ -433,7 +433,8 @@ export async function actOnTransaction(client, user, transactionId, kind, body, 
         throw new RequestError(400, 'Review the suspension items and remarks.');
       }
       const snapshot = {
-        project: record.project, type: record.type, reference: record.reference,
+        project: record.project, projectReference: record.project_reference,
+        type: record.type, reference: record.reference,
         issuer: user.displayName, actualOn, remarks,
         items: unchecked.map((item) => ({
           label: item.label,

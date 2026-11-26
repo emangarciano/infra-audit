@@ -547,7 +547,10 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal(suspension.details.slip.items[0].remarks, 'Development fixture reason');
     firstSlipPath = `${txPath()}/slips/${event}`;
     firstSlip = await success(firstSlipPath, { cookie: auditor });
-    assert.match(firstSlip, /Development fixture · For testing only/);
+    assert.match(firstSlip, /<dt>Project reference number<\/dt><dd>PW-103<\/dd>/);
+    assert.match(firstSlip, /<h2>Needing compliance:<\/h2>/);
+    assert.equal(firstSlip.includes(record.reference), false);
+    assert.doesNotMatch(firstSlip, /Development fixture · For testing only/);
     assert.match(firstSlip, /&lt;custom requirement&gt;/);
     assert.doesNotMatch(firstSlip, /sample requirement [AB]/);
     assert.equal((await request(firstSlipPath, { cookie: intake })).status, 403);

@@ -28,11 +28,11 @@ Checklist selections and confirmed details are kept in a browser draft for the s
 
 When upgrading, stop the running app, run `npm run migrate`, then start the updated app. The migration removes the retired **Other Appropriate Licenses and Permits required by law and stated in the PBD** requirement from existing standard BAC checklists. It records the removal in the transaction’s audit history and preserves previously issued suspension slips.
 
-Development fixtures use visibly labeled sample items for the other transaction types. Auditors can add requirements manually when no checklist is configured. The default suspension slip is labeled for testing.
+Development fixtures use visibly labeled sample items for the other transaction types. Auditors can add requirements manually when no checklist is configured. Use the default suspension slip for development before the approved layout is configured.
 
 Set `PACCO_CHECKLIST_FILE` to a local JSON file that maps transaction types to arrays of approved requirement labels. The keys are `bac`, `advance`, `progress`, `final`, and `retention`. A configured `bac` list takes precedence over the supplied CSV. The app excludes the retired BAC requirement from configured lists as well. Validate the checklist against PACCO's approved reference before the official pilot.
 
-Set `PACCO_SLIP_TEMPLATE_FILE` to a local HTML template prepared from the approved specimen. Use `{{requirements}}` for the item list and place `{{project}}`, `{{transaction}}`, `{{type}}`, `{{date}}`, `{{issuer}}`, and `{{remarks}}` wherever the form calls for those values. Include print styles in the template so the saved slip retains its layout. Open a slip from audit history and use the browser's Print command.
+Set `PACCO_SLIP_TEMPLATE_FILE` to a local HTML template prepared from the approved specimen. Use `{{requirements}}` for the item list and place `{{project}}`, `{{projectreference}}`, `{{transaction}}`, `{{type}}`, `{{date}}`, `{{issuer}}`, and `{{remarks}}` wherever the form calls for those values. Include print styles in the template so the saved slip retains its layout. Open a slip from audit history and use the browser's Print command.
 
 ## Backup and restore
 
