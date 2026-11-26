@@ -215,13 +215,35 @@ dd { margin: .125rem 0 0; overflow-wrap: anywhere; }
 .checklist-choice input {
   display: block; accent-color: var(--accent); width: 1rem; height: 1rem; min-height: 0; margin: auto; padding: 0;
 }
+.checklist-choice input[value="N/A"]:checked {
+  --na-fill: #626b69;
+  --na-slash: white;
+  appearance: none;
+  border-color: var(--na-fill);
+  background: var(--na-fill)
+    linear-gradient(135deg, transparent 42%, var(--na-slash) 44% 56%, transparent 58%)
+    center / .625rem .625rem no-repeat;
+}
+.checklist-choice input[value="N/A"]:checked:disabled { --na-fill: #7a8280; }
+@media (forced-colors: active) {
+  .checklist-choice input[value="N/A"]:checked {
+    --na-fill: Highlight;
+    --na-slash: HighlightText;
+    forced-color-adjust: none;
+    outline-color: CanvasText;
+  }
+  .checklist-choice input[value="N/A"]:checked:disabled {
+    --na-fill: GrayText;
+    --na-slash: Canvas;
+  }
+}
 .requirement-name {
   display: block; width: fit-content; max-width: 100%; padding: .18rem .36rem;
   border-radius: .25rem; font-size: .85rem; line-height: 1.25; overflow-wrap: anywhere;
   background: #f9e6e7;
 }
 .requirement-name.compact { font-size: .75rem; }
-.checklist-row[data-state="N/A"] .requirement-name { background: #eee; }
+.checklist-row[data-state="N/A"] .requirement-name { background: #eee; text-decoration: line-through; }
 .checklist-row[data-state="Checked"] .requirement-name { background: #e0f2e4; }
 .checklist-item-details { display: flex; align-items: center; gap: .35rem; }
 .checklist-details { flex: none; width: 1.5rem; min-height: 1.5rem; padding: 0; line-height: 1; }
