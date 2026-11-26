@@ -63,7 +63,15 @@ nav a:focus-visible { outline-offset: -3px; }
   padding: .65rem .75rem; margin-bottom: .625rem;
 }
 .panel > h2 { margin-bottom: .5rem; }
-.transaction-summary > h1 { font-size: 1rem; line-height: inherit; overflow-wrap: anywhere; }
+.transaction-summary {
+  position: sticky; top: 0; z-index: 2;
+  max-height: 50dvh; overflow: auto;
+}
+.transaction-summary > h1, .transaction-summary > .project-reference {
+  font-size: 1rem; font-weight: 700; line-height: inherit; overflow-wrap: anywhere;
+}
+.summary-detail { display: flex; align-items: baseline; gap: .375rem; }
+.summary-detail dd { min-width: 0; margin: 0; }
 .transaction-actions { margin-bottom: .625rem; }
 .transaction-badges {
   display: flex; flex-wrap: wrap; align-items: center; gap: .375rem .5rem;
@@ -163,11 +171,6 @@ td a { font-weight: 650; }
 .badge {
   display: inline-block; white-space: nowrap; border-radius: var(--radius); padding: .0625rem .375rem;
   background: #e4f1ef; color: #18564c; font-size: .75rem; font-weight: 700;
-}
-.transaction-badges .project-reference {
-  max-width: calc(100% - .3125rem); margin-inline-end: .3125rem; padding: .3125rem .75rem;
-  border: 1px solid var(--accent); border-radius: 999px; background: transparent; color: var(--deep);
-  box-shadow: .3125rem .3125rem 0 var(--accent); font-size: 1rem;
 }
 .suspended { background: #fbe6d9; color: #823611; }
 .resubmitted { background: #fff0c6; color: #694810; }

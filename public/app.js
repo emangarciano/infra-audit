@@ -976,14 +976,14 @@ function displayTransaction(record, { checklistOpen = true, checklistDraft, save
   const actions = savedChecklist ? '' : transactionActions(record);
   const summary = `<section class="panel transaction-summary">
     <h1 tabindex="-1">${escape(record.project)}</h1>
+    ${record.project_reference ? `<p class="project-reference">${escape(record.project_reference)}</p>` : ''}
     <div class="transaction-badges">
-      ${record.project_reference ? `<span class="badge project-reference">${escape(record.project_reference)}</span>` : ''}
       <span class="badge">${escape(transactionType)}</span>
+      ${badge(record.status, record.voided)}
     </div>
     <dl class="definition-grid">
-      <div><dt>Status</dt><dd>${badge(record.status, record.voided)}</dd></div>
-      <div aria-live="polite" aria-atomic="true"><dt>Needing compliance</dt><dd id="compliance-count">${itemsNeedingCompliance}</dd></div>
-      <div><dt>Assigned</dt><dd>${escape(record.assigned_auditor)}</dd></div>
+      <div class="summary-detail" aria-live="polite" aria-atomic="true"><dt>Needing compliance</dt><dd id="compliance-count">${itemsNeedingCompliance}</dd></div>
+      <div class="summary-detail"><dt>Assigned</dt><dd>${escape(record.assigned_auditor)}</dd></div>
       ${record.obligation_request_reference ? `<div><dt>Obligation request reference</dt><dd>${escape(record.obligation_request_reference)}</dd></div>` : ''}
     </dl>${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}
   </section>`;
