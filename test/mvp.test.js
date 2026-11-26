@@ -472,6 +472,45 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal(unchanged.revision, saved.revision);
   });
 
+  await t.test('Retention claims start with three requirements and save certificate and bond details', async () => {
+    const { id } = await success('/transactions', post({ project_id: project.id, type: 'retention' }, auditor), 201);
+    const path = `/transactions/${id}`;
+    const retention = await success(path, { cookie: auditor });
+    assert.deepEqual(retention.checklist.map(({ label, state }) => [label, state]), [
+      ["Contractor's request", 'Unchecked'],
+      ['Certificate of Final Acceptance', 'Unchecked'],
+      ['Warranty Bond', 'Unchecked'],
+    ]);
+    const [requestItem, certificate, bond] = retention.checklist;
+    assert.deepEqual(requestItem.field_definitions, []);
+    assert.deepEqual(certificate.field_definitions, [
+      { key: 'issuance_date', label: 'Issuance date', kind: 'date' },
+    ]);
+    assert.deepEqual(bond.field_definitions, [
+      { key: 'effectivity_date', label: 'Effectivity date', kind: 'date' },
+      { key: 'surety_name', label: 'Surety name', kind: 'text' },
+      { key: 'amount_covered', label: 'Amount covered', kind: 'amount' },
+      { key: 'reference_number', label: 'Reference number', kind: 'text' },
+    ]);
+
+    const items = [
+      { id: certificate.id, state: 'Checked', document_fields: { issuance_date: '2026-11-04' } },
+      { id: bond.id, state: 'Checked', document_fields: {
+        effectivity_date: '2026-11-05', surety_name: 'Test Surety', amount_covered: '1,234.5', reference_number: '0007',
+      } },
+    ];
+    const save = (entries) => patch({ revision: retention.revision, items: entries }, auditor);
+    const invalid = await request(`${path}/checklist`, save([
+      { ...items[0], document_fields: { effectivity_date: '2026-11-05' } },
+    ]));
+    assert.equal(invalid.status, 400);
+    await success(`${path}/checklist`, save(items));
+    const reloaded = await success(path, { cookie: auditor });
+    assert.deepEqual(reloaded.checklist.map(({ document_fields }) => document_fields), [
+      {}, items[0].document_fields, { ...items[1].document_fields, amount_covered: '1234.50' },
+    ]);
+  });
+
   await t.test('AC-02 project transactions, restricted intake history, and audited project corrections', async () => {
     const { transactions } = await success(`/projects/${project.id}`, { cookie: otherAuditor });
     assert.ok(transactions.some((item) => item.id === record.id && item.type === 'progress'));

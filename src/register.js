@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { complianceDescription, complianceReasons } from '../public/checklist-compliance.js';
-import { bacFields, updateDocumentFields } from './bac-fields.js';
+import { checklistFields, updateDocumentFields } from './bac-fields.js';
 import { RequestError } from './database.js';
 import {
   amount, amountForCopy, auditRoles, checklistStates, date, id, movementKinds,
@@ -336,7 +336,7 @@ export async function readTransaction(client, user, transactionId) {
   const items = await checklist(client, transactionId);
   const orderedItems = record.type === 'bac' ? groupBacChecklist(items) : items;
   return { ...record, history, checklist: orderedItems.map((item) => ({
-    ...item, field_definitions: bacFields(record.type, item),
+    ...item, field_definitions: checklistFields(record.type, item),
   })) };
 }
 
@@ -389,7 +389,7 @@ export async function saveChecklist(client, user, transactionId, body) {
     stored.delete(item.id);
     const state = oneOf(entry.state, checklistStates, 'Checklist state');
     const remarks = entry.remarks === item.remarks ? item.remarks : text(entry.remarks, 'Checklist remarks');
-    const documentFields = updateDocumentFields(item.document_fields, entry.document_fields, bacFields(record.type, item));
+    const documentFields = updateDocumentFields(item.document_fields, entry.document_fields, checklistFields(record.type, item));
     const reasons = Object.hasOwn(entry, 'compliance_reasons') ? entry.compliance_reasons : item.compliance_reasons;
     if (!Array.isArray(reasons) || reasons.some((reason) => !complianceReasons.includes(reason))) {
       throw new RequestError(400, 'Select valid Needing compliance reasons.');

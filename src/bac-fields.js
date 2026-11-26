@@ -3,9 +3,11 @@ import { amount, date, oneOf, text } from './domain.js';
 
 const fields = {
   issue_date: { label: 'Issue date', kind: 'date' },
+  issuance_date: { label: 'Issuance date', kind: 'date' },
   received_date: { label: 'Received date', kind: 'date' },
   effectivity_date: { label: 'Effectivity date', kind: 'date' },
   amount: { label: 'Amount (₱)', kind: 'amount' },
+  amount_covered: { label: 'Amount covered', kind: 'amount' },
   surety_name: { label: 'Surety name', kind: 'text' },
   reference: { label: 'Reference', kind: 'text' },
   reference_number: { label: 'Reference number', kind: 'text' },
@@ -13,19 +15,25 @@ const fields = {
   duration: { label: 'Duration', kind: 'text' },
 };
 
-const documents = new Map([
-  ['obr', ['reference_number', 'amount']],
-  ['notice of award', ['issue_date', 'received_date', 'amount']],
-  ['performance security', ['effectivity_date', 'surety_name', 'reference', 'includes_after_completion']],
-  ['duly notarized contract', ['issue_date', 'amount', 'duration']],
-  ['contract', ['issue_date', 'amount', 'duration']],
-  ['notice to proceed', ['issue_date', 'received_date']],
-  ["contractor's all risk insurance (cari)", ['effectivity_date', 'surety_name']],
-  ['cari', ['effectivity_date', 'surety_name']],
-]);
+const documents = {
+  bac: new Map([
+    ['obr', ['reference_number', 'amount']],
+    ['notice of award', ['issue_date', 'received_date', 'amount']],
+    ['performance security', ['effectivity_date', 'surety_name', 'reference', 'includes_after_completion']],
+    ['duly notarized contract', ['issue_date', 'amount', 'duration']],
+    ['contract', ['issue_date', 'amount', 'duration']],
+    ['notice to proceed', ['issue_date', 'received_date']],
+    ["contractor's all risk insurance (cari)", ['effectivity_date', 'surety_name']],
+    ['cari', ['effectivity_date', 'surety_name']],
+  ]),
+  retention: new Map([
+    ['certificate of final acceptance', ['issuance_date']],
+    ['warranty bond', ['effectivity_date', 'surety_name', 'amount_covered', 'reference_number']],
+  ]),
+};
 
-export function bacFields(type, item) {
-  const keys = type === 'bac' && !item.custom ? documents.get(item.label.toLowerCase()) : null;
+export function checklistFields(type, item) {
+  const keys = item.custom ? null : documents[type]?.get(item.label.toLowerCase());
   return (keys ?? []).map((key) => ({ key, ...fields[key] }));
 }
 

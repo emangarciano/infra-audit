@@ -69,7 +69,9 @@ export function escapeHtml(value) {
 }
 
 export async function loadReferences(env = process.env) {
-  const checklists = {};
+  const checklists = {
+    retention: ["Contractor's request", 'Certificate of Final Acceptance', 'Warranty Bond'],
+  };
   if (env.PACCO_CHECKLIST_FILE) {
     const source = JSON.parse(await readFile(env.PACCO_CHECKLIST_FILE, 'utf8'));
     if (!source || typeof source !== 'object' || Array.isArray(source)) {
@@ -84,7 +86,7 @@ export async function loadReferences(env = process.env) {
     }
   } else if (env.PACCO_DEVELOPMENT_FIXTURES === '1') {
     for (const type of Object.keys(types).filter((key) => key !== 'bac')) {
-      checklists[type] = ['Development fixture — sample requirement A', 'Development fixture — sample requirement B'];
+      checklists[type] ??= ['Development fixture — sample requirement A', 'Development fixture — sample requirement B'];
     }
   }
   if (!Object.hasOwn(checklists, 'bac')) {
