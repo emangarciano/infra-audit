@@ -598,7 +598,10 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     record = await success(`${txPath()}/checklist`, patch({
       revision: record.revision, new_label: 'Development fixture second deficiency',
     }, auditor));
-    await act('suspend', auditor);
+    const second = record.checklist.find(({ label }) => label === 'Development fixture second deficiency');
+    const secondEvent = await act('suspend', auditor, { item_remarks: { [second.id]: 'Old per-slip override' } });
+    const secondSlip = record.history.find(({ id }) => id === secondEvent).details.slip;
+    assert.deepEqual(secondSlip.items, [{ label: second.label, remarks: null }]);
     await act('resubmit', auditor);
     await act('resume', supervisor);
     assert.equal(record.history.filter((entry) => entry.has_slip).length, 2);

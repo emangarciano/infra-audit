@@ -861,12 +861,12 @@ function changeDetails(changes, kind) {
       if (!after) return `Removed requirement ${before.label} (${stateLabel(before)}). Remarks: ${before.remarks || '—'}.`;
       const beforeReasons = before.compliance_reasons?.join(', ') || '—';
       const afterReasons = after.compliance_reasons?.join(', ') || '—';
-      const beforeDetails = before.compliance_details ?? '—';
-      const afterDetails = after.compliance_details ?? '—';
+      const beforeDetails = before.compliance_details ?? null;
+      const afterDetails = after.compliance_details ?? null;
       return [
         `${after.label}. State: ${stateLabel(before)} → ${stateLabel(after)}. Remarks: ${before.remarks || '—'} → ${after.remarks || '—'}.`,
         beforeReasons === afterReasons ? '' : `Needing compliance reasons: ${beforeReasons} → ${afterReasons}.`,
-        beforeDetails === afterDetails ? '' : `Additional details: ${beforeDetails} → ${afterDetails}.`,
+        beforeDetails === afterDetails ? '' : `Additional details: ${beforeDetails ?? '(empty)'} → ${afterDetails ?? '(empty)'}.`,
         ...Object.keys({ ...before.document_fields, ...after.document_fields })
           .filter((key) => before.document_fields?.[key] !== after.document_fields?.[key])
           .map((key) => `${key.replaceAll('_', ' ')}: ${documentFieldValue(before.document_fields?.[key])} → ${documentFieldValue(after.document_fields?.[key])}.`),

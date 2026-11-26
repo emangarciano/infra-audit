@@ -443,18 +443,13 @@ export async function actOnTransaction(client, user, transactionId, kind, body, 
       if (!unchecked.length) {
         throw new RequestError(400, 'There are no unchecked applicable requirements to include on a suspension slip.');
       }
-      const itemRemarks = body.item_remarks ?? {};
-      if (!itemRemarks || typeof itemRemarks !== 'object' || Array.isArray(itemRemarks)) {
-        throw new RequestError(400, 'Review the suspension items and remarks.');
-      }
       const snapshot = {
         project: record.project, projectReference: record.project_reference,
         type: record.type, reference: record.reference,
         issuer: user.displayName, actualOn, remarks,
         items: unchecked.map((item) => ({
           label: item.label,
-          remarks: complianceDescription(item) ||
-            (Object.hasOwn(itemRemarks, item.id) ? text(itemRemarks[item.id], 'Item remarks') : null),
+          remarks: complianceDescription(item) || null,
         })),
       };
       details.slip_html = renderSlip(references.layout, snapshot);
