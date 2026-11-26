@@ -980,12 +980,12 @@ function displayTransaction(record, { checklistOpen = true, checklistDraft, save
     <div class="transaction-badges">
       <span class="badge">${escape(transactionType)}</span>
       ${badge(record.status, record.voided)}
+      <span class="badge" aria-live="polite" aria-atomic="true">Needing compliance: <span id="compliance-count">${itemsNeedingCompliance}</span></span>
     </div>
-    <dl class="definition-grid">
-      <div class="summary-detail" aria-live="polite" aria-atomic="true"><dt>Needing compliance</dt><dd id="compliance-count">${itemsNeedingCompliance}</dd></div>
-      <div class="summary-detail"><dt>Assigned</dt><dd>${escape(record.assigned_auditor)}</dd></div>
-      ${record.obligation_request_reference ? `<div><dt>Obligation request reference</dt><dd>${escape(record.obligation_request_reference)}</dd></div>` : ''}
-    </dl>${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}
+    ${record.obligation_request_reference ? `<dl class="definition-grid">
+      <div><dt>Obligation request reference</dt><dd>${escape(record.obligation_request_reference)}</dd></div>
+    </dl>` : ''}
+    ${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}
   </section>`;
   const checklist = audit ? checklistPanel(checklistItems, editable, record.type, checklistOpen) : '';
   mount(`${backLink(`project/${record.project_id}`, record.project)}

@@ -70,14 +70,13 @@ nav a:focus-visible { outline-offset: -3px; }
 .transaction-summary > h1, .transaction-summary > .project-reference {
   font-size: 1rem; font-weight: 700; line-height: inherit; overflow-wrap: anywhere;
 }
-.summary-detail { display: flex; align-items: baseline; gap: .375rem; }
-.summary-detail dd { min-width: 0; margin: 0; }
 .transaction-actions { margin-bottom: .625rem; }
 .transaction-badges {
   display: flex; flex-wrap: wrap; align-items: center; gap: .375rem .5rem;
-  margin-block: .375rem .625rem;
+  margin-top: .375rem;
 }
 .transaction-badges .badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.transaction-badges + .definition-grid { margin-top: .625rem; }
 @media (min-width: 48rem) {
   .new-project-form { width: 50vw; margin-inline: auto; }
 }
