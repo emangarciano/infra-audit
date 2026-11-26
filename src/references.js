@@ -113,7 +113,7 @@ export function renderSlip(layout, snapshot) {
     issuer: escapeHtml(snapshot.issuer),
     requirements: '<ol>' + snapshot.items.map((item) =>
       `<li><strong>${escapeHtml(item.label)}</strong>` +
-      (item.remarks ? `<p>${escapeHtml(item.remarks)}</p>` : '') + '</li>',
+      (item.remarks ? `<p>${escapeHtml(item.remarks).replace(/\r?\n/g, '<br>')}</p>` : '') + '</li>',
     ).join('') + '</ol>',
     remarks: snapshot.remarks ? `<p>${escapeHtml(snapshot.remarks)}</p>` : '',
   };

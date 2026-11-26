@@ -1,4 +1,5 @@
 import { parsePesoAmount } from './peso-amount.js';
+import { complianceDescription, complianceReasons } from './checklist-compliance.js';
 import { applyChecklistEdits, checklistDraftStore, checklistItemEdit, checklistSaveItems } from './checklist-draft.js';
 
 const screen = document.querySelector('#screen');
@@ -800,6 +801,15 @@ function fitChecklistNames(contents) {
 function openDocumentDetails(modal, item, draft, trigger, confirm) {
   modal.innerHTML = `<h2 id="document-dialog-title">${escape(checklistDocumentName(item))}</h2>
     <form class="stack">
+      <details class="compliance-details"${item.state === 'Checked' ? '' : ' open'}>
+        <summary>Needing compliance</summary>
+        <div class="stack">
+          ${complianceReasons.map((reason) => `<label class="compliance-reason">
+            <input type="checkbox" name="compliance_reasons" value="${escape(reason)}"${draft.compliance_reasons?.includes(reason) ? ' checked' : ''}>
+            ${escape(reason)}</label>`).join('')}
+          ${remarks('Additional details', 'compliance_details', draft.compliance_details)}
+        </div>
+      </details>
       ${item.field_definitions.length ? `<div class="grid">${documentFields({ ...item, ...draft })}</div>` : ''}
       ${remarks('Remarks (optional)', 'remarks', draft.remarks)}
       <div class="actions"><button type="submit" class="primary">OK</button>
@@ -807,7 +817,7 @@ function openDocumentDetails(modal, item, draft, trigger, confirm) {
     </form>`;
   const form = modal.querySelector('form');
   bindPesoAmounts(form);
-  const initial = new FormData(form);
+  const initial = JSON.stringify([...new FormData(form)]);
   form.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.isComposing && !event.shiftKey &&
         (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement)) {
@@ -818,8 +828,10 @@ function openDocumentDetails(modal, item, draft, trigger, confirm) {
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const values = new FormData(form);
-    if ([...values].some(([key, value]) => value !== initial.get(key))) confirm({
+    if (JSON.stringify([...values]) !== initial) confirm({
       remarks: values.get('remarks').trim() || null,
+      compliance_reasons: values.getAll('compliance_reasons'),
+      compliance_details: values.get('compliance_details').trim() || null,
       document_fields: Object.fromEntries(item.field_definitions.map(({ key, kind }) => {
         const value = values.get(key).trim();
         if (value === '') return [key, null];
@@ -847,12 +859,18 @@ function changeDetails(changes, kind) {
     ? changes.map(({ before, after }) => {
       if (!before) return `Added requirement ${after.label} (${stateLabel(after)}).`;
       if (!after) return `Removed requirement ${before.label} (${stateLabel(before)}). Remarks: ${before.remarks || '—'}.`;
+      const beforeReasons = before.compliance_reasons?.join(', ') || '—';
+      const afterReasons = after.compliance_reasons?.join(', ') || '—';
+      const beforeDetails = before.compliance_details ?? '—';
+      const afterDetails = after.compliance_details ?? '—';
       return [
         `${after.label}. State: ${stateLabel(before)} → ${stateLabel(after)}. Remarks: ${before.remarks || '—'} → ${after.remarks || '—'}.`,
+        beforeReasons === afterReasons ? '' : `Needing compliance reasons: ${beforeReasons} → ${afterReasons}.`,
+        beforeDetails === afterDetails ? '' : `Additional details: ${beforeDetails} → ${afterDetails}.`,
         ...Object.keys({ ...before.document_fields, ...after.document_fields })
           .filter((key) => before.document_fields?.[key] !== after.document_fields?.[key])
           .map((key) => `${key.replaceAll('_', ' ')}: ${documentFieldValue(before.document_fields?.[key])} → ${documentFieldValue(after.document_fields?.[key])}.`),
-      ].join(' ');
+      ].filter(Boolean).join(' ');
     })
     : Object.entries(changes).map(([field, { before, after }]) => {
       const label = field === 'reference' && kind === 'project_correction' ? 'Project reference' : fieldLabels[field] ?? field;
@@ -1059,10 +1077,11 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
   checklistForm.addEventListener('click', (event) => {
     const trigger = event.target.closest('[data-document]');
     if (!trigger) return;
+    const row = trigger.closest('.checklist-row');
     const item = record.checklist.find(({ id }) => id === Number(trigger.dataset.document));
-    openDocumentDetails(documentDialog, item, documentDrafts.get(item.id), trigger, (details) => {
+    openDocumentDetails(documentDialog, { ...item, state: row.dataset.state }, documentDrafts.get(item.id), trigger, (details) => {
       documentDrafts.set(item.id, details);
-      trigger.closest('.checklist-row').querySelector('.document-badges').innerHTML = documentBadges(item, details);
+      row.querySelector('.document-badges').innerHTML = documentBadges(item, details);
       cacheChecklist();
     });
   });
@@ -1211,8 +1230,10 @@ function openAction(record, action, label) {
       <div class="notice error" role="alert" tabindex="-1" hidden></div>
       ${field('Actual action date', 'actual_on', today(), 'required', 'date')}
       ${suspend ? `<h3>Unchecked applicable requirements</h3>
-        <ol class="slip-items">${unchecked.map((item) => `<li><strong>${escape(item.label)}</strong>
-        ${remarks('Reason or remarks', `item_${item.id}`, item.remarks)}</li>`).join('')}</ol>` : ''}
+        <ol class="slip-items">${unchecked.map((item) => {
+          const description = complianceDescription(item);
+          return `<li><strong>${escape(item.label)}</strong>${description ? `<p>${escape(description)}</p>` : ''}</li>`;
+        }).join('')}</ol>` : ''}
       ${certify && unchecked.length ? `<p class="warning">${unchecked.length} applicable ${unchecked.length === 1 ? 'requirement is' : 'requirements are'} unchecked. Enter a justification to certify.</p>
         <label>Justification<textarea name="justification" required maxlength="2500"></textarea></label>` : ''}
       ${certify && record.type !== 'bac' ? `<div class="stack">
@@ -1251,7 +1272,6 @@ function openAction(record, action, label) {
       revision: record.revision, actual_on: body.actual_on, remarks: body.remarks,
       certified_amount: body.certified_amount, justification: body.justification,
     };
-    if (suspend) request.item_remarks = Object.fromEntries(unchecked.map(({ id }) => [id, body[`item_${id}`]]));
     const result = await api(`/transactions/${record.id}/actions/${action}`, 'POST', request);
     dialog.close();
     refreshTransaction(result.record);

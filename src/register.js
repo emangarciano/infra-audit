@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { complianceDescription, complianceReasons } from '../public/checklist-compliance.js';
 import { bacFields, updateDocumentFields } from './bac-fields.js';
 import { RequestError } from './database.js';
 import {
@@ -303,7 +304,8 @@ async function findTransaction(client, transactionId) {
 
 async function checklist(client, transactionId) {
   const result = await client.query(`
-    SELECT id, label, state, remarks, custom, document_fields FROM checklist_items WHERE transaction_id = $1 ORDER BY id
+    SELECT id, label, state, remarks, custom, document_fields, compliance_reasons, compliance_details
+    FROM checklist_items WHERE transaction_id = $1 ORDER BY id
   `, [transactionId]);
   return result.rows;
 }
@@ -381,11 +383,24 @@ export async function saveChecklist(client, user, transactionId, body) {
     const state = oneOf(entry.state, checklistStates, 'Checklist state');
     const remarks = text(entry.remarks, 'Checklist remarks');
     const documentFields = updateDocumentFields(item.document_fields, entry.document_fields, bacFields(record.type, item));
-    if (item.state !== state || item.remarks !== remarks ||
+    const reasons = Object.hasOwn(entry, 'compliance_reasons') ? entry.compliance_reasons : item.compliance_reasons;
+    if (!Array.isArray(reasons) || reasons.some((reason) => !complianceReasons.includes(reason))) {
+      throw new RequestError(400, 'Select valid Needing compliance reasons.');
+    }
+    const selectedReasons = complianceReasons.filter((reason) => reasons.includes(reason));
+    const additionalDetails = Object.hasOwn(entry, 'compliance_details')
+      ? text(entry.compliance_details, 'Needing compliance additional details') : item.compliance_details;
+    if (item.state !== state || item.remarks !== remarks || item.compliance_details !== additionalDetails ||
+        item.compliance_reasons.join() !== selectedReasons.join() ||
         JSON.stringify(item.document_fields) !== JSON.stringify(documentFields)) {
-      await client.query('UPDATE checklist_items SET state = $2, remarks = $3, document_fields = $4 WHERE id = $1',
-        [item.id, state, remarks, documentFields]);
-      changes.push({ before: item, after: { ...item, state, remarks, document_fields: documentFields } });
+      await client.query(`
+        UPDATE checklist_items SET state = $2, remarks = $3, document_fields = $4,
+          compliance_reasons = $5, compliance_details = $6 WHERE id = $1
+      `, [item.id, state, remarks, documentFields, selectedReasons, additionalDetails]);
+      changes.push({ before: item, after: {
+        ...item, state, remarks, document_fields: documentFields,
+        compliance_reasons: selectedReasons, compliance_details: additionalDetails,
+      } });
     }
   }
   const label = text(body.new_label, 'Requirement label', 240);
@@ -438,7 +453,8 @@ export async function actOnTransaction(client, user, transactionId, kind, body, 
         issuer: user.displayName, actualOn, remarks,
         items: unchecked.map((item) => ({
           label: item.label,
-          remarks: Object.hasOwn(itemRemarks, item.id) ? text(itemRemarks[item.id], 'Item remarks') : item.remarks,
+          remarks: complianceDescription(item) ||
+            (Object.hasOwn(itemRemarks, item.id) ? text(itemRemarks[item.id], 'Item remarks') : null),
         })),
       };
       details.slip_html = renderSlip(references.layout, snapshot);

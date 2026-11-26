@@ -39,6 +39,12 @@ export function checklistItemEdit(item, state, details) {
   const edit = {};
   if (state !== item.state) edit.state = state;
   if ((details.remarks ?? null) !== (item.remarks ?? null)) edit.remarks = details.remarks;
+  if ((details.compliance_reasons ?? []).join() !== (item.compliance_reasons ?? []).join()) {
+    edit.compliance_reasons = details.compliance_reasons;
+  }
+  if ((details.compliance_details ?? null) !== (item.compliance_details ?? null)) {
+    edit.compliance_details = details.compliance_details;
+  }
   const fields = item.field_definitions.flatMap(({ key }) => {
     const value = details.document_fields[key] ?? null;
     const saved = item.document_fields[key] ?? null;
@@ -53,7 +59,7 @@ export function checklistSaveItems(items, edits = []) {
   return items.flatMap((item) => {
     const edit = byId.get(item.id);
     if (!edit) return [];
-    const { state = item.state, remarks = item.remarks, document_fields } = edit;
-    return [{ id: item.id, state, remarks, document_fields }];
+    const { state = item.state, remarks = item.remarks, document_fields, compliance_reasons, compliance_details } = edit;
+    return [{ id: item.id, state, remarks, document_fields, compliance_reasons, compliance_details }];
   });
 }

@@ -525,7 +525,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     record = await success(`${txPath()}/checklist`, patch({
       revision: record.revision,
       items: [
-        { id: record.checklist[0].id, state: 'Checked' },
+        { id: record.checklist[0].id, state: 'Checked', compliance_reasons: ['Has discrepancy'] },
         { id: record.checklist[1].id, state: 'N/A' },
       ],
       new_label: 'Development fixture <custom requirement>',
@@ -537,16 +537,26 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     const summary = await success(txPath(), { cookie: intake });
     assert.equal(summary.items_needing_compliance, 1);
     assert.equal(summary.checklist, undefined);
-    const event = await act('suspend', otherAuditor, {
-      actual_on: '2026-11-08', item_remarks: { [custom.id]: 'Development fixture reason' },
-    });
+    const complianceDetails = 'Provide the <signed> copy.\nInclude both pages.';
+    record = await success(`${txPath()}/checklist`, patch({
+      revision: record.revision,
+      items: [{
+        id: custom.id, state: 'Unchecked', remarks: 'Internal checklist note',
+        compliance_reasons: ['Lacking signature/s', 'Not attached'], compliance_details: complianceDetails,
+      }],
+    }, auditor));
+    const compliance = (await read()).checklist.find(({ id }) => id === custom.id);
+    assert.deepEqual(compliance.compliance_reasons, ['Not attached', 'Lacking signature/s']);
+    assert.equal(compliance.compliance_details, complianceDetails);
+    const event = await act('suspend', otherAuditor, { actual_on: '2026-11-08' });
     assert.equal(record.status, 'Suspended');
     assert.equal(record.latest_action_on, '2026-11-08');
     const suspension = record.history.find((entry) => entry.id === event);
     assert.equal(suspension.actor_id, credentials['auditor-b']);
     assert.equal(record.history.at(-2).kind, 'checklist');
     assert.equal(suspension.details.slip.items.length, 1);
-    assert.equal(suspension.details.slip.items[0].remarks, 'Development fixture reason');
+    assert.equal(suspension.details.slip.items[0].remarks,
+      'Not attached, Lacking signature/s\nProvide the <signed> copy.\nInclude both pages.');
     firstSlipPath = `${txPath()}/slips/${event}`;
     firstSlip = await success(firstSlipPath, { cookie: auditor });
     assert.match(firstSlip, /<dt>Project reference number<\/dt><dd>PW-103<\/dd>/);
@@ -554,7 +564,8 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.equal(firstSlip.includes(record.reference), false);
     assert.doesNotMatch(firstSlip, /Development fixture · For testing only/);
     assert.match(firstSlip, /&lt;custom requirement&gt;/);
-    assert.doesNotMatch(firstSlip, /sample requirement [AB]/);
+    assert.match(firstSlip, /Not attached, Lacking signature\/s<br>Provide the &lt;signed&gt; copy\.<br>Include both pages\./);
+    assert.doesNotMatch(firstSlip, /sample requirement [AB]|Internal checklist note|Has discrepancy/);
     assert.equal((await request(firstSlipPath, { cookie: intake })).status, 403);
     assert.equal((await success(txPath(), { cookie: intake })).history.at(-1).details, undefined);
   });
@@ -562,7 +573,10 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
   await t.test('AC-04 slip is reproduced after checklist edits and a new form is loaded', async () => {
     record = await success(`${txPath()}/checklist`, patch({
       revision: record.revision, items: [
-        { id: record.checklist.find((item) => item.custom).id, state: 'Checked', remarks: 'Later assessment' },
+        {
+          id: record.checklist.find((item) => item.custom).id, state: 'Checked', remarks: 'Later assessment',
+          compliance_reasons: [], compliance_details: null,
+        },
       ],
     }, auditor));
     references.layout = references.layout.replace('Suspension slip', 'Different print title');
@@ -738,7 +752,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     assert.deepEqual(migration.details.checklist_removals, [{
       before: {
         id: retired.id, label: retiredBacRequirement, state: 'Unchecked', remarks: 'Earlier suspension ground',
-        custom: false, document_fields: {},
+        custom: false, document_fields: {}, compliance_reasons: [], compliance_details: null,
       },
       after: null,
     }]);

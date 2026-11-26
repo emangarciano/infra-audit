@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS checklist_items (
 );
 
 ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS document_fields jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS compliance_reasons text[] NOT NULL DEFAULT '{}';
+ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS compliance_details text;
 
 CREATE TABLE IF NOT EXISTS audit_events (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
