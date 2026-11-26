@@ -231,6 +231,7 @@ dd { margin: .125rem 0 0; overflow-wrap: anywhere; }
   max-width: 100%; border-radius: .35rem; background: #edf3f1; color: #344e48;
   font-size: .77rem; font-weight: 400; white-space: pre-wrap; overflow-wrap: anywhere;
 }
+.checklist-row[data-state="Checked"] .compliance-badge { display: none; }
 .history { list-style: none; padding: 0; margin: 0; }
 .history > li { padding: .375rem 0; border-top: 1px solid var(--line); display: grid; gap: .25rem; overflow-wrap: anywhere; }
 .history-entry {
@@ -258,8 +259,10 @@ dialog {
 dialog::backdrop { background: rgb(16 44 39 / .5); }
 dialog form { margin-top: .5rem; }
 dialog .notice { margin: 0; }
-.compliance-details { border: 1px solid var(--line); border-radius: var(--radius); padding: .5rem; }
-.compliance-details > .stack { margin-top: .5rem; }
+.compliance-details, .compliance-history { border: 1px solid var(--line); border-radius: var(--radius); padding: .5rem; }
+.compliance-details > .stack, .compliance-history > :not(summary) { margin-top: .5rem; }
+.compliance-history-meta { display: flex; gap: .25rem .75rem; flex-wrap: wrap; font-size: .8125rem; color: var(--muted); }
+.compliance-history-text { white-space: pre-wrap; }
 .compliance-reason { display: flex; align-items: center; gap: .5rem; }
 .compliance-reason input { flex: none; width: 1rem; height: 1rem; min-height: 0; margin: 0; }
 #project-picker [data-project-browser] { border: 0; margin: 0; padding: 0; }

@@ -1,5 +1,5 @@
 import { parsePesoAmount } from './peso-amount.js';
-import { complianceDescription, complianceReasons } from './checklist-compliance.js';
+import { complianceDescription, complianceReasons, documentComplianceHistory } from './checklist-compliance.js';
 import { applyChecklistEdits, checklistDraftStore, checklistItemEdit, checklistSaveItems } from './checklist-draft.js';
 
 const screen = document.querySelector('#screen');
@@ -112,7 +112,7 @@ function bindPesoAmounts(form) {
 }
 
 function remarks(label, name, value = '', max = 1000) {
-  return `<label>${escape(label)}<textarea name="${name}"${max === null ? '' : ` maxlength="${max}"`}>${escape(value)}</textarea></label>`;
+  return `<label>${escape(label)}<textarea name="${name}" maxlength="${max}">${escape(value)}</textarea></label>`;
 }
 
 function options(values, selected) {
@@ -718,8 +718,8 @@ function checklistRow(item, editable) {
     <td class="checklist-choice"><input type="checkbox" name="complied_${item.id}" value="Checked" aria-label="OK"
       aria-describedby="${name}"${complied ? ' checked' : ''}${editable ? '' : ' disabled'}></td>
     <td><div class="checklist-item-details">
-      ${editable ? `<button type="button" class="checklist-details" data-document="${item.id}" aria-haspopup="dialog"
-        aria-label="Add details" aria-describedby="${name}">+</button>` : ''}
+      <button type="button" class="${editable ? 'checklist-details' : 'link'}" data-document="${item.id}" aria-haspopup="dialog"
+        aria-label="${editable ? 'Add details' : 'View compliance history'}" aria-describedby="${name}">${editable ? '+' : 'History'}</button>
       <div class="document-badges">${documentBadges(item, item)}</div>
     </div></td>
   </tr>`;
@@ -773,10 +773,10 @@ function checklistPanel(items, editable, type, open) {
       <p class="muted form-actions" data-draft-status role="status" hidden></p>
       <div class="notice warning form-actions" data-draft-review hidden></div>
       <div class="notice error form-actions" role="alert" tabindex="-1" hidden></div>
-    </form>
-    <dialog id="document-dialog" aria-labelledby="document-dialog-title"></dialog>` : rows;
+    </form>` : rows;
   return `<details id="requirements-checklist" class="panel"${open ? ' open' : ''}>
-    <summary>Requirements checklist</summary><div class="checklist-content">${contents}</div></details>`;
+    <summary>Requirements checklist</summary><div class="checklist-content">${contents}</div>
+    <dialog id="document-dialog" aria-labelledby="document-dialog-title"></dialog></details>`;
 }
 
 function fitChecklistNames(contents) {
@@ -797,8 +797,35 @@ function fitChecklistNames(contents) {
   checklistNameObserver.observe(contents);
 }
 
-function openDocumentDetails(modal, item, draft, trigger, confirm) {
-  modal.innerHTML = `<h2 id="document-dialog-title">${escape(checklistDocumentName(item))}</h2>
+function complianceHistoryPanel(entries, open) {
+  const snapshot = (values) => `<strong>${escape(checklistStateLabels[values.state] ?? '—')}</strong>
+    ${values.compliance_reasons.length ? `<div>${escape(values.compliance_reasons.join(', '))}</div>` : ''}
+    ${values.compliance_details ? `<div class="compliance-history-text">${escape(values.compliance_details)}</div>` : ''}
+    ${complianceDescription(values) ? '' : '<div class="muted">No compliance values recorded.</div>'}`;
+  const rows = entries.slice().reverse().map((entry) => `<li>
+    <div class="compliance-history-meta"><strong>Action date ${escape(entry.actual_on)}</strong>
+      <span>${escape(entry.actor_name)}</span>
+      <span>Recorded ${escape(manilaTime.format(new Date(entry.recorded_at)))} PHT</span></div>
+    <dl class="definition-grid">
+      <div><dt>Previous</dt><dd>${snapshot(entry.before)}</dd></div>
+      <div><dt>Saved</dt><dd>${snapshot(entry.after)}</dd></div>
+    </dl></li>`).join('');
+  return `<details class="compliance-history"${open ? ' open' : ''}>
+    <summary>Compliance history</summary>
+    ${rows ? `<ol class="history">${rows}</ol>` : '<p class="muted">No saved compliance changes.</p>'}</details>`;
+}
+
+function openDocumentDetails(modal, item, { draft, history, trigger, confirm }) {
+  const heading = `<h2 id="document-dialog-title">${escape(checklistDocumentName(item))}</h2>`;
+  const historyMarkup = complianceHistoryPanel(documentComplianceHistory(history, item.id), !confirm);
+  if (!confirm) {
+    modal.innerHTML = `${heading}<form method="dialog" class="stack">${historyMarkup}
+      <div class="actions"><button>Close</button></div></form>`;
+    trigger.focus();
+    modal.showModal();
+    return;
+  }
+  modal.innerHTML = `${heading}
     <form class="stack">
       ${item.state === 'Checked' ? '' : `<details class="compliance-details" open>
         <summary>Needing compliance</summary>
@@ -810,7 +837,8 @@ function openDocumentDetails(modal, item, draft, trigger, confirm) {
         </div>
       </details>`}
       ${item.field_definitions.length ? `<div class="grid">${documentFields({ ...item, ...draft })}</div>` : ''}
-      ${remarks('Remarks (optional)', 'remarks', draft.remarks, null)}
+      ${remarks('Remarks (optional)', 'remarks', draft.remarks)}
+      ${historyMarkup}
       <div class="actions"><button type="submit" class="primary">OK</button>
         <button type="button" data-cancel-document>Cancel</button></div>
     </form>`;
@@ -994,6 +1022,16 @@ function displayTransaction(record, { checklistOpen = true, checklistDraft, save
   if (editable) {
     bindTransactionEditor(record, checklistItems, { draft, store, browserStorageFailed });
   } else {
+    if (audit) {
+      const requirements = screen.querySelector('#requirements-checklist');
+      const modal = requirements.querySelector('#document-dialog');
+      requirements.addEventListener('click', (event) => {
+        const trigger = event.target.closest('[data-document]');
+        if (!trigger) return;
+        const item = checklistItems.find(({ id }) => id === Number(trigger.dataset.document));
+        openDocumentDetails(modal, item, { history: record.history, trigger });
+      });
+    }
     screen.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click', () =>
       openAction(record, button.dataset.action, button.textContent)));
   }
@@ -1087,32 +1125,7 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
   cacheChecklist();
   checklistForm.addEventListener('input', (event) => {
     const row = event.target.closest('.checklist-row');
-    if (row) {
-      syncChecklistRow(row, event.target);
-      if (event.target.value === 'Checked' && event.target.checked) {
-        const id = Number(row.querySelector('[data-document]').dataset.document);
-        const details = documentDrafts.get(id);
-        const summary = complianceDescription(details);
-        if (summary) {
-          const actionDate = checklistForm.elements.actual_on.value || today();
-          const savedItem = record.checklist.find((item) => item.id === id);
-          const previousDate = complianceDescription(savedItem) === summary
-            ? record.history.findLast((entry) => entry.kind === 'checklist' && entry.details.changes.some(
-              ({ before, after }) => after?.id === id && complianceDescription(before ?? {}) !== complianceDescription(after),
-            ))?.actual_on ?? 'date unknown'
-            : actionDate;
-          const resolution = `Resolved (${actionDate}) -> Needing compliance (${previousDate}): ${summary}`;
-          const resolved = {
-            ...details,
-            remarks: [details.remarks, resolution].filter(Boolean).join('\n'),
-            compliance_reasons: [],
-            compliance_details: null,
-          };
-          documentDrafts.set(id, resolved);
-          row.querySelector('.document-badges').innerHTML = documentBadges(savedItem, resolved);
-        }
-      }
-    }
+    if (row) syncChecklistRow(row, event.target);
     const count = checklistForm.querySelectorAll('.checklist-row[data-state="Unchecked"]').length;
     if (complianceCount.textContent !== String(count)) {
       complianceCount.textContent = String(count);
@@ -1125,10 +1138,13 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
     if (!trigger) return;
     const row = trigger.closest('.checklist-row');
     const item = record.checklist.find(({ id }) => id === Number(trigger.dataset.document));
-    openDocumentDetails(documentDialog, { ...item, state: row.dataset.state }, documentDrafts.get(item.id), trigger, (details) => {
+    const confirm = (details) => {
       documentDrafts.set(item.id, details);
       row.querySelector('.document-badges').innerHTML = documentBadges(item, details);
       cacheChecklist();
+    };
+    openDocumentDetails(documentDialog, { ...item, state: row.dataset.state }, {
+      draft: documentDrafts.get(item.id), history: record.history, trigger, confirm,
     });
   });
 

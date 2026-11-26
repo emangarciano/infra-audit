@@ -381,7 +381,7 @@ export async function saveChecklist(client, user, transactionId, body) {
     if (!item) throw new RequestError(400, 'Select each checklist item once from this transaction.');
     stored.delete(item.id);
     const state = oneOf(entry.state, checklistStates, 'Checklist state');
-    const remarks = text(entry.remarks, 'Checklist remarks', Infinity);
+    const remarks = entry.remarks === item.remarks ? item.remarks : text(entry.remarks, 'Checklist remarks');
     const documentFields = updateDocumentFields(item.document_fields, entry.document_fields, bacFields(record.type, item));
     const reasons = Object.hasOwn(entry, 'compliance_reasons') ? entry.compliance_reasons : item.compliance_reasons;
     if (!Array.isArray(reasons) || reasons.some((reason) => !complianceReasons.includes(reason))) {
