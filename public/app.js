@@ -942,17 +942,9 @@ function transactionActions(record) {
   return actions.map(([value, label]) => `<button class="${value === 'void' ? 'danger' : 'primary'}" data-action="${value}" type="button">${label}</button>`).join('');
 }
 
-function refreshTransaction(record, draftForm, checklistDraft) {
-  const draft = draftForm ? new FormData(draftForm) : null;
+function refreshTransaction(record, checklistDraft) {
   const checklistOpen = screen.querySelector('#requirements-checklist')?.open;
   displayTransaction(record, { checklistOpen, checklistDraft });
-  if (!draft) return;
-  const form = document.getElementById(draftForm.id);
-  if (!form) return;
-  for (const control of form.elements) {
-    if (draft.has(control.name)) control.value = draft.get(control.name);
-  }
-  form.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function displayTransaction(record, { checklistOpen = true, checklistDraft, savedChecklist = false } = {}) {
@@ -992,15 +984,6 @@ function displayTransaction(record, { checklistOpen = true, checklistDraft, save
   mount(`${backLink(`project/${record.project_id}`, record.project)}
     ${savedChecklist ? '<p class="muted">Latest saved checklist</p>' : ''}${summary}
     ${checklist}
-    ${editable ? `<section class="panel"><h2>Transaction details</h2><form id="transaction-details" class="stack">
-      <div class="grid">
-        ${field('Reference or title', 'reference', record.reference, 'required maxlength="200"')}
-        ${field('Obligation request reference (optional)', 'obligation_request_reference', record.obligation_request_reference, 'maxlength="200"')}
-        ${field('Received or created date', 'received_on', record.received_on, 'required', 'date')}
-        ${field('Action date', 'actual_on', today(), 'required', 'date')}
-      </div>${remarks('Notes', 'notes', record.notes, 2500)}
-      <div class="notice error" role="alert" tabindex="-1" hidden></div>
-      <div class="actions"><button class="primary" type="submit">Save transaction details</button></div></form></section>` : ''}
     ${historyPanel(record.history, record.id, audit)}`);
   if (audit) fitChecklistNames(screen.querySelector('.checklist-content'));
   if (editable) {
@@ -1017,7 +1000,6 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
   const latestLink = `${link}/latest`;
   const checklistForm = screen.querySelector('#checklist-form');
   const checklistDisclosure = checklistForm.closest('details');
-  const detailsForm = screen.querySelector('#transaction-details');
   const checklistError = checklistForm.querySelector('[role="alert"]');
   const documentDialog = screen.querySelector('#document-dialog');
   const actionButtons = screen.querySelectorAll('[data-action]');
@@ -1029,7 +1011,6 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
   const pageVersion = navigationVersion;
   const currentPage = () => checklistForm.isConnected && pageVersion === navigationVersion && user?.id === accountId;
   let draftRevision = draft?.revision ?? record.revision;
-  let detailsDirty = false;
   let saving = false;
   let reviewRequired = false;
   let reviewPending = Boolean(draft?.reviewPending || draftRevision !== record.revision);
@@ -1133,7 +1114,6 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
     }
     cacheChecklist();
   });
-  detailsForm.addEventListener('input', () => { detailsDirty = true; });
   checklistForm.addEventListener('click', (event) => {
     const trigger = event.target.closest('[data-document]');
     if (!trigger) return;
@@ -1149,13 +1129,13 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
   async function saveTransactionForm(path, body, signal) {
     const focused = document.activeElement;
     saving = true;
-    checklistForm.inert = detailsForm.inert = true;
+    checklistForm.inert = true;
     actionButtons.forEach((button) => { button.disabled = true; });
     try {
       return await api(path, 'PATCH', { ...body, revision: record.revision }, signal);
     } finally {
       saving = false;
-      checklistForm.inert = detailsForm.inert = false;
+      checklistForm.inert = false;
       actionButtons.forEach((button) => { button.disabled = false; });
       if (currentPage() && document.activeElement === document.body && focused?.isConnected) {
         focused.focus({ preventScroll: true });
@@ -1179,7 +1159,7 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
         review.disabled = true;
         try {
           const latest = await api(`/transactions/${record.id}?account_id=${accountId}`);
-          if (currentPage()) refreshTransaction(latest, detailsDirty ? detailsForm : null, { store, draft });
+          if (currentPage()) refreshTransaction(latest, { store, draft });
         } catch (loadError) {
           if (!currentPage()) return;
           if (loadError.code === 'session_account') location.reload();
@@ -1234,7 +1214,7 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
       screen.querySelector('#transaction-history').outerHTML = historyPanel(record.history, record.id);
       showNotice('Checklist autosaved.');
     } else {
-      refreshTransaction(updated, detailsDirty ? detailsForm : null, { store, draft: null });
+      refreshTransaction(updated, { store, draft: null });
       showNotice('Checklist saved.');
     }
   }
@@ -1255,18 +1235,9 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
   });
   checklistAutosaveTimer = setInterval(autosaveChecklist, checklistAutosaveInterval);
   submit(checklistForm, () => saveChecklist(false));
-  submit(detailsForm, async (body) => {
-    if (saving || !currentPage()) return;
-    showNotice('');
-    const updated = await saveTransactionForm(`/transactions/${record.id}`, body);
-    if (!currentPage()) return;
-    const nextDraft = draft && draftRevision === record.revision ? { ...draft, revision: updated.revision } : draft;
-    refreshTransaction(updated, null, { store, draft: nextDraft });
-    showNotice('Transaction details saved.');
-  }, { localError: detailsForm.querySelector('.notice'), conflict: link });
   actionButtons.forEach((button) => button.addEventListener('click', () => {
-    if (draft || detailsDirty) {
-      showNotice('Save your checklist and detail edits before recording an action.', true);
+    if (draft) {
+      showNotice('Save your checklist edits before recording an action.', true);
     } else {
       openAction(record, button.dataset.action, button.textContent);
     }
