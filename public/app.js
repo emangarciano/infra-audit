@@ -986,11 +986,11 @@ function displayTransaction(record, { checklistOpen = true, checklistDraft, save
       <div><dt>Obligation request reference</dt><dd>${escape(record.obligation_request_reference)}</dd></div>
     </dl>` : ''}
     ${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}
+    ${actions ? `<div class="actions transaction-actions">${actions}</div>` : ''}
   </section>`;
   const checklist = audit ? checklistPanel(checklistItems, editable, record.type, checklistOpen) : '';
   mount(`${backLink(`project/${record.project_id}`, record.project)}
     ${savedChecklist ? '<p class="muted">Latest saved checklist</p>' : ''}${summary}
-    ${actions ? `<div class="actions transaction-actions">${actions}</div>` : ''}
     ${checklist}
     ${editable ? `<section class="panel"><h2>Transaction details</h2><form id="transaction-details" class="stack">
       <div class="grid">
