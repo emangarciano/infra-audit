@@ -715,7 +715,7 @@ function checklistRow(item, editable) {
       <span>${escape(checklistDocumentName(item))}${item.custom ? ' <span class="muted">(custom)</span>' : ''}</span>
     </span></th>
     <td class="checklist-choice"><input type="checkbox" name="complied_${item.id}" value="Checked" aria-label="OK"
-      aria-describedby="${name}"${complied ? ' checked' : ''}${notApplicable || !editable ? ' disabled' : ''}></td>
+      aria-describedby="${name}"${complied ? ' checked' : ''}${editable ? '' : ' disabled'}></td>
     <td><div class="checklist-item-details">
       ${editable ? `<button type="button" class="checklist-details" data-document="${item.id}" aria-haspopup="dialog"
         aria-label="Add details" aria-describedby="${name}">+</button>` : ''}
@@ -728,12 +728,12 @@ function checklistState(notApplicable, complied) {
   return notApplicable ? 'N/A' : complied ? 'Checked' : 'Unchecked';
 }
 
-function syncChecklistRow(row) {
-  const notApplicable = row.querySelector('input[value="N/A"]').checked;
+function syncChecklistRow(row, changed) {
+  const notApplicable = row.querySelector('input[value="N/A"]');
   const compliance = row.querySelector('input[value="Checked"]');
-  compliance.disabled = notApplicable;
-  if (notApplicable) compliance.checked = false;
-  row.dataset.state = checklistState(notApplicable, compliance.checked);
+  if (changed === notApplicable && notApplicable.checked) compliance.checked = false;
+  if (changed === compliance && compliance.checked) notApplicable.checked = false;
+  row.dataset.state = checklistState(notApplicable.checked, compliance.checked);
 }
 
 function checklistRows(items, editable, type) {
@@ -1050,7 +1050,7 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
   cacheChecklist();
   checklistForm.addEventListener('input', (event) => {
     const row = event.target.closest('.checklist-row');
-    if (row) syncChecklistRow(row);
+    if (row) syncChecklistRow(row, event.target);
     const count = String(checklistForm.querySelectorAll('.checklist-row[data-state="Unchecked"]').length);
     if (complianceCount.textContent !== count) complianceCount.textContent = count;
     cacheChecklist();
