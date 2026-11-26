@@ -8,11 +8,13 @@ const fields = {
   amount: { label: 'Amount (₱)', kind: 'amount' },
   surety_name: { label: 'Surety name', kind: 'text' },
   reference: { label: 'Reference', kind: 'text' },
+  reference_number: { label: 'Reference number', kind: 'text' },
   includes_after_completion: { label: 'Includes after completion', kind: 'boolean' },
   duration: { label: 'Duration', kind: 'text' },
 };
 
 const documents = new Map([
+  ['obr', ['reference_number', 'amount']],
   ['notice of award', ['issue_date', 'received_date', 'amount']],
   ['performance security', ['effectivity_date', 'surety_name', 'reference', 'includes_after_completion']],
   ['duly notarized contract', ['issue_date', 'amount', 'duration']],

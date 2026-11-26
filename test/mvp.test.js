@@ -426,7 +426,13 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
   await t.test('BAC document fields are scoped, persisted and recorded in history', async () => {
     const path = `/transactions/${selfAssigned.id}`;
     const bac = await success(path, { cookie: otherAuditor });
+    const obr = bac.checklist.find(({ label }) => label === 'OBR');
+    assert.deepEqual(obr.field_definitions, [
+      { key: 'reference_number', label: 'Reference number', kind: 'text' },
+      { key: 'amount', label: 'Amount (₱)', kind: 'amount' },
+    ]);
     const values = {
+      OBR: { reference_number: '0007-2026', amount: '2500.50' },
       'Notice of Award': { issue_date: '2026-11-01', received_date: '2026-11-02', amount: '1234.50' },
       'Performance Security': {
         effectivity_date: '2026-11-02', surety_name: 'Test Surety', reference: 'PS-01',
@@ -437,7 +443,7 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
       "Contractor's All Risk Insurance (CARI)": { effectivity_date: '2026-11-05', surety_name: 'Test Insurer' },
     };
     const documents = bac.checklist.filter((item) => item.field_definitions.length);
-    assert.equal(documents.length, 5);
+    assert.equal(documents.length, 6);
     const items = documents.map((item) => {
       assert.deepEqual(item.field_definitions.map(({ key }) => key), Object.keys(values[item.label]));
       return { id: item.id, state: item.state, document_fields: values[item.label] };
@@ -447,9 +453,11 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
     for (const item of reloaded.checklist.filter((item) => item.field_definitions.length)) {
       assert.deepEqual(item.document_fields, values[item.label]);
     }
-    assert.equal(saved.history.at(-1).details.changes.length, 5);
-    assert.equal(saved.history.at(-1).details.changes.find(({ after }) =>
-      after.label === 'Performance Security').after.document_fields.includes_after_completion, false);
+    const { changes } = saved.history.at(-1).details;
+    assert.equal(changes.length, 6);
+    assert.deepEqual(changes.find(({ after }) => after.label === 'OBR').after.document_fields, values.OBR);
+    assert.equal(changes.find(({ after }) => after.label === 'Performance Security')
+      .after.document_fields.includes_after_completion, false);
     const invalid = await request(`${path}/checklist`, patch({
       revision: saved.revision,
       items: [{ ...items[0], document_fields: { surety_name: 'Wrong document' } }],

@@ -22,7 +22,7 @@ If a reverse proxy terminates HTTPS, set `PACCO_ORIGIN` to the browser-facing or
 
 ## Checklists and slips
 
-New BAC documentation transactions start with the 62 requirements in [the supplied CSV](docs/BAC%20Documentation.csv). Each requirement begins as **Not Complied** and can be marked **Complied** or **N/A**. Notice of Award, Performance Security, Duly notarized contract, Notice to Proceed, and CARI have optional document fields in their **Add details** dialogs. All requirements support optional remarks. Confirm dialog edits with **OK** or **Enter**.
+New BAC documentation transactions start with the 62 requirements in [the supplied CSV](docs/BAC%20Documentation.csv). Each requirement begins as **Not Complied** and can be marked **Complied** or **N/A**. OBR has optional **Reference number** and **Amount (₱)** fields in its **Add details** dialog. Notice of Award, Performance Security, Duly notarized contract, Notice to Proceed, and CARI also have optional document fields. All requirements support optional remarks. Confirm dialog edits with **OK** or **Enter**.
 
 Checklist selections and confirmed details are kept in a browser draft for the signed-in user and transaction. While the checklist is open, the app checks every minute and saves changed items to the shared record. Use **Save** in the transaction action row to save immediately or add a transaction-specific requirement. If the shared record changed while you were editing, load the latest checklist for review, compare it with your draft, and save manually.
 
