@@ -291,6 +291,8 @@ test('Lean MVP API against PostgreSQL', { skip: !url && 'Set PACCO_TEST_DATABASE
       assert.equal((await request(`${path}/actions/${kind}`, post(action, otherAuditor))).status, 409);
     }
     await success(`${path}/actions/start`, post(action, otherAuditor));
+    const { transactions } = await success(`/projects/${before.project_id}`, { cookie: intake });
+    assert.equal(transactions.at(-1).id, record.id, 'Starting an older transaction preserves registration order');
     const after = await success(path, { cookie: intake });
     assert.equal(after.status, 'Under Audit');
     assert.equal(after.latest_action_on, action.actual_on);
