@@ -711,11 +711,11 @@ function checklistRow(item, editable) {
   return `<tr class="checklist-row" data-state="${escape(item.state)}">
     <td class="checklist-choice"><input type="checkbox" name="not_applicable_${item.id}" value="N/A" aria-label="N/A"
       aria-describedby="${name}"${notApplicable ? ' checked' : ''}${editable ? '' : ' disabled'}></td>
-    <td class="checklist-choice"><input type="checkbox" name="complied_${item.id}" value="Checked" aria-label="OK"
-      aria-describedby="${name}"${complied ? ' checked' : ''}${notApplicable || !editable ? ' disabled' : ''}></td>
     <th scope="row"><span id="${name}" class="requirement-name">
       <span>${escape(checklistDocumentName(item))}${item.custom ? ' <span class="muted">(custom)</span>' : ''}</span>
     </span></th>
+    <td class="checklist-choice"><input type="checkbox" name="complied_${item.id}" value="Checked" aria-label="OK"
+      aria-describedby="${name}"${complied ? ' checked' : ''}${notApplicable || !editable ? ' disabled' : ''}></td>
     <td><div class="checklist-item-details">
       ${editable ? `<button type="button" class="checklist-details" data-document="${item.id}" aria-haspopup="dialog"
         aria-label="Add details" aria-describedby="${name}">+</button>` : ''}
@@ -739,9 +739,9 @@ function syncChecklistRow(row) {
 function checklistRows(items, editable, type) {
   if (!items.length) return '<p class="muted">No requirements have been recorded.</p>';
   const table = (rows) => `<table class="checklist-table">
-    <colgroup><col span="2" class="checklist-choice-column"><col class="checklist-name-column"><col></colgroup>
-    <thead><tr><th scope="col" class="checklist-choice">N/A</th><th scope="col" class="checklist-choice">OK</th>
-      <th scope="col">Document</th><th scope="col">Details</th></tr></thead>
+    <colgroup><col class="checklist-choice-column"><col class="checklist-name-column"><col class="checklist-choice-column"><col></colgroup>
+    <thead><tr><th scope="col" class="checklist-choice">N/A</th><th scope="col">Document</th>
+      <th scope="col" class="checklist-choice">OK</th><th scope="col">Details</th></tr></thead>
     <tbody>${rows.map((item) => checklistRow(item, editable)).join('')}</tbody>
   </table>`;
   if (type !== 'bac') return table(items);
