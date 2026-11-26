@@ -672,8 +672,8 @@ function displayProject(record) {
 const checklistStateLabels = { 'N/A': 'N/A', Checked: 'Complied', Unchecked: 'Not Complied' };
 const booleanOptions = [['', 'Not recorded'], ['true', 'Yes'], ['false', 'No']];
 const bacGroupLabels = {
-  preparation: 'Procurement preparation', evaluation: 'Procurement evaluation', award: 'Award',
-  financial: 'Financial proposal', technical: 'Technical proposal', others: 'Others',
+  preparation: 'Preparation', evaluation: 'Evaluation', award: 'Contract',
+  technical: 'Technical reqs', financial: 'Financial reqs', others: 'Others',
 };
 const shortChecklistNames = new Map([
   ['Construction Safety and Health Program approved by DOLE', 'CSHP received by DOLE'],
@@ -740,35 +740,72 @@ function syncChecklistRow(row, changed) {
   row.dataset.state = checklistState(notApplicable.checked, compliance.checked);
 }
 
-function checklistRows(items, editable, type) {
-  if (!items.length) return '<p class="muted">No requirements have been recorded.</p>';
-  const table = (rows) => `<table class="checklist-table">
+function checklistRequirements(items, editable, type, activeGroup) {
+  const table = (rows) => rows.length ? `<table class="checklist-table">
     <colgroup><col class="checklist-choice-column"><col class="checklist-name-column"><col class="checklist-choice-column"><col></colgroup>
     <thead><tr><th scope="col" class="checklist-choice">N/A</th><th scope="col">Document</th>
       <th scope="col" class="checklist-choice">OK</th><th scope="col">Details</th></tr></thead>
     <tbody>${rows.map((item) => checklistRow(item, editable)).join('')}</tbody>
-  </table>`;
+  </table>` : '<p class="muted">No requirements have been recorded.</p>';
   if (type !== 'bac') return table(items);
   const grouped = new Map(Object.keys(bacGroupLabels).map((group) => [group, []]));
   for (const item of items) {
     const rows = grouped.get(item.checklist_group) ?? grouped.get('others');
     rows.push(item);
   }
-  const groups = Object.entries(bacGroupLabels).map(([group, title]) => {
-    const rows = grouped.get(group);
-    if (!rows.length) return '';
-    return `<section class="checklist-group" data-group="${group}" aria-labelledby="checklist-${group}">
-      <h3 id="checklist-${group}">${title}</h3>${table(rows)}
-    </section>`;
-  });
-  return `<div class="checklist-groups">${groups.join('')}</div>`;
+  const tabs = Object.entries(bacGroupLabels).map(([group, title]) => {
+    const selected = group === activeGroup;
+    const unchecked = grouped.get(group).filter((item) => item.state === 'Unchecked').length;
+    return `<button type="button" role="tab" id="checklist-tab-${group}" aria-controls="checklist-${group}"
+      aria-selected="${selected}" tabindex="${selected ? 0 : -1}" data-group="${group}">
+      ${title} (<span data-unchecked-count>${unchecked}</span>)
+    </button>`;
+  }).join('');
+  const panels = [...grouped].map(([group, rows]) =>
+    `<section class="checklist-group" data-group="${group}" role="tabpanel" id="checklist-${group}" aria-labelledby="checklist-tab-${group}"
+      tabindex="0"${group === activeGroup ? '' : ' hidden'}>${table(rows)}</section>`).join('');
+  return `<div class="checklist-tabs" role="tablist" aria-label="Requirement groups">${tabs}</div>${panels}`;
 }
 
-function checklistPanel(items, editable, type, open) {
-  const rows = checklistRows(items, editable, type);
+function bindChecklistTabs(contents) {
+  const tablist = contents.querySelector('.checklist-tabs');
+  if (!tablist) return;
+  const tabs = [...tablist.querySelectorAll('[role="tab"]')];
+
+  function selectTab(selectedTab) {
+    for (const tab of tabs) {
+      const selected = tab === selectedTab;
+      tab.setAttribute('aria-selected', selected);
+      tab.tabIndex = selected ? 0 : -1;
+      document.getElementById(tab.getAttribute('aria-controls')).hidden = !selected;
+    }
+  }
+
+  tablist.addEventListener('click', (event) => {
+    const tab = event.target.closest('[role="tab"]');
+    if (tab) selectTab(tab);
+  });
+  tablist.addEventListener('keydown', (event) => {
+    const currentIndex = tabs.indexOf(event.target);
+    let nextIndex;
+    switch (event.key) {
+      case 'ArrowLeft': nextIndex = (currentIndex + tabs.length - 1) % tabs.length; break;
+      case 'ArrowRight': nextIndex = (currentIndex + 1) % tabs.length; break;
+      case 'Home': nextIndex = 0; break;
+      case 'End': nextIndex = tabs.length - 1; break;
+      default: return;
+    }
+    event.preventDefault();
+    selectTab(tabs[nextIndex]);
+    tabs[nextIndex].focus();
+  });
+}
+
+function checklistPanel(items, editable, type, open, activeGroup) {
+  const requirements = checklistRequirements(items, editable, type, activeGroup);
   const contents = editable
     ? `<form id="checklist-form">
-      ${rows}
+      ${requirements}
       <div class="grid form-actions">
         ${field('Add a transaction-specific requirement', 'new_label', '', 'maxlength="240"')}
         ${field('Action date', 'actual_on', today(), 'required', 'date')}
@@ -776,28 +813,30 @@ function checklistPanel(items, editable, type, open) {
       <p class="muted form-actions" data-draft-status role="status" hidden></p>
       <div class="notice warning form-actions" data-draft-review hidden></div>
       <div class="notice error form-actions" role="alert" tabindex="-1" hidden></div>
-    </form>` : rows;
+    </form>` : requirements;
   return `<details id="requirements-checklist" class="panel"${open ? ' open' : ''}>
     <summary>Requirements checklist</summary><div class="checklist-content">${contents}</div>
     <dialog id="document-dialog" aria-labelledby="document-dialog-title"></dialog></details>`;
 }
 
 function fitChecklistNames(contents) {
-  const names = [...contents.querySelectorAll('.requirement-name')];
-  let previousWidth;
-  checklistNameObserver = new ResizeObserver(([entry]) => {
-    const { width } = entry.contentRect;
-    if (width === previousWidth) return;
-    previousWidth = width;
-    if (!width) return;
-    requestAnimationFrame(() => {
-      if (!contents.isConnected) return;
-      names.forEach((name) => name.classList.remove('compact'));
-      const wrapped = names.filter((name) => name.firstElementChild.getClientRects().length > 1);
-      wrapped.forEach((name) => name.classList.add('compact'));
-    });
+  const groups = contents.querySelectorAll('.checklist-group');
+  const widths = new Map();
+  checklistNameObserver = new ResizeObserver((entries) => {
+    for (const { target, contentRect: { width } } of entries) {
+      if (widths.get(target) === width) continue;
+      widths.set(target, width);
+      if (!width) continue;
+      requestAnimationFrame(() => {
+        if (!target.isConnected || target.hidden) return;
+        const names = [...target.querySelectorAll('.requirement-name')];
+        names.forEach((name) => name.classList.remove('compact'));
+        const wrapped = names.filter((name) => name.firstElementChild.getClientRects().length > 1);
+        wrapped.forEach((name) => name.classList.add('compact'));
+      });
+    }
   });
-  checklistNameObserver.observe(contents);
+  for (const group of groups.length ? groups : [contents]) checklistNameObserver.observe(group);
 }
 
 function complianceHistoryPanel(entries, open) {
@@ -974,10 +1013,13 @@ function transactionActions(record) {
 
 function refreshTransaction(record, checklistDraft) {
   const checklistOpen = screen.querySelector('#requirements-checklist')?.open;
-  displayTransaction(record, { checklistOpen, checklistDraft });
+  const activeGroup = screen.querySelector('.checklist-tabs [aria-selected="true"]')?.dataset.group;
+  displayTransaction(record, { checklistOpen, checklistDraft, activeGroup });
 }
 
-function displayTransaction(record, { checklistOpen = true, checklistDraft, savedChecklist = false } = {}) {
+function displayTransaction(record, {
+  checklistOpen = true, checklistDraft, savedChecklist = false, activeGroup = 'preparation',
+} = {}) {
   const audit = isAuditRole();
   const editable = audit && !record.voided && !savedChecklist;
   const accountId = user?.id;
@@ -1016,12 +1058,16 @@ function displayTransaction(record, { checklistOpen = true, checklistDraft, save
         </svg>Save</button>` : ''}${actions}
     </div>` : ''}
   </section>`;
-  const checklist = audit ? checklistPanel(checklistItems, editable, record.type, checklistOpen) : '';
+  const checklist = audit ? checklistPanel(checklistItems, editable, record.type, checklistOpen, activeGroup) : '';
   mount(`${backLink(`project/${record.project_id}`, record.project)}
     ${savedChecklist ? '<p class="muted">Latest saved checklist</p>' : ''}${summary}
     ${checklist}
     ${historyPanel(record.history, record.id, audit)}`);
-  if (audit) fitChecklistNames(screen.querySelector('.checklist-content'));
+  if (audit) {
+    const contents = screen.querySelector('.checklist-content');
+    bindChecklistTabs(contents);
+    fitChecklistNames(contents);
+  }
   if (editable) {
     bindTransactionEditor(record, checklistItems, { draft, store, browserStorageFailed });
   } else {
@@ -1128,11 +1174,19 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
   cacheChecklist();
   checklistForm.addEventListener('input', (event) => {
     const row = event.target.closest('.checklist-row');
-    if (row) syncChecklistRow(row, event.target);
-    const count = checklistForm.querySelectorAll('.checklist-row[data-state="Unchecked"]').length;
-    if (complianceCount.textContent !== String(count)) {
-      complianceCount.textContent = String(count);
-      complianceCount.parentElement.classList.toggle('has-unchecked-items', count > 0);
+    if (row) {
+      syncChecklistRow(row, event.target);
+      const uncheckedRows = '.checklist-row[data-state="Unchecked"]';
+      const group = row.closest('.checklist-group');
+      if (group) {
+        const tab = document.getElementById(group.getAttribute('aria-labelledby'));
+        tab.querySelector('[data-unchecked-count]').textContent = group.querySelectorAll(uncheckedRows).length;
+      }
+      const count = checklistForm.querySelectorAll(uncheckedRows).length;
+      if (complianceCount.textContent !== String(count)) {
+        complianceCount.textContent = String(count);
+        complianceCount.parentElement.classList.toggle('has-unchecked-items', count > 0);
+      }
     }
     cacheChecklist();
   });

@@ -189,10 +189,14 @@ dd { margin: .125rem 0 0; overflow-wrap: anywhere; }
 #requirements-checklist > summary { font-size: 1rem; }
 #requirements-checklist[open] > summary { margin-bottom: .5rem; }
 #requirements-checklist:not([open]) > .checklist-content { display: none; }
-.checklist-groups { display: grid; gap: .5rem; }
+.checklist-tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin-bottom: .375rem; }
+.checklist-tabs button { max-width: 100%; overflow-wrap: anywhere; }
+.checklist-tabs button[aria-selected="true"] {
+  background: var(--accent); color: white; border-color: var(--accent);
+}
+.checklist-tabs button:focus-visible, .checklist-group:focus-visible { outline-offset: -3px; }
 .checklist-group {
-  min-width: 0; border: 1px solid var(--group-accent); border-inline-start-width: .25rem;
-  border-radius: var(--radius);
+  border: 1px solid var(--group-accent); border-inline-start-width: .25rem; border-radius: var(--radius);
 }
 .checklist-group[data-group="preparation"] { --group-accent: #829f96; }
 .checklist-group[data-group="evaluation"] { --group-accent: #879aa9; }
@@ -200,10 +204,7 @@ dd { margin: .125rem 0 0; overflow-wrap: anywhere; }
 .checklist-group[data-group="financial"] { --group-accent: #939e83; }
 .checklist-group[data-group="technical"] { --group-accent: #8995a8; }
 .checklist-group[data-group="others"] { --group-accent: #a6a5a0; }
-.checklist-group h3 {
-  padding: .3125rem .625rem; border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--group-accent) 16%, white);
-}
+.checklist-group > p { padding: .625rem; }
 .checklist-table { table-layout: fixed; }
 .checklist-choice-column { width: 2.25rem; }
 .checklist-name-column { width: 25%; }
