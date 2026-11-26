@@ -880,8 +880,9 @@ function changeDetails(changes, kind) {
 }
 
 function historyPanel(history, transactionId, audit = true) {
+  const events = audit ? history.slice().reverse() : history;
   return `<section id="transaction-history" class="panel"><h2>${audit ? 'Audit history' : 'Movement history'}</h2>
-    ${history.length ? `<ol class="history">${history.map((event) => {
+    ${events.length ? `<ol class="history">${events.map((event) => {
       const details = event.details ?? {};
       const status = event.new_status
         ? event.previous_status && event.previous_status !== event.new_status
