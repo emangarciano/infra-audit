@@ -980,7 +980,7 @@ function displayTransaction(record, { checklistOpen = true, checklistDraft, save
     <div class="transaction-badges">
       <span class="badge">${escape(transactionType)}</span>
       ${badge(record.status, record.voided)}
-      <span class="badge" aria-live="polite" aria-atomic="true">Needing compliance: <span id="compliance-count">${itemsNeedingCompliance}</span></span>
+      <span class="badge" aria-live="polite" aria-atomic="true">Unchecked items: <span id="compliance-count">${itemsNeedingCompliance}</span></span>
     </div>
     ${record.obligation_request_reference ? `<dl class="definition-grid">
       <div><dt>Obligation request reference</dt><dd>${escape(record.obligation_request_reference)}</dd></div>
