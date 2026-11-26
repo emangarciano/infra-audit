@@ -112,7 +112,7 @@ function bindPesoAmounts(form) {
 }
 
 function remarks(label, name, value = '', max = 1000) {
-  return `<label>${escape(label)}<textarea name="${name}" maxlength="${max}">${escape(value)}</textarea></label>`;
+  return `<label>${escape(label)}<textarea name="${name}"${max === null ? '' : ` maxlength="${max}"`}>${escape(value)}</textarea></label>`;
 }
 
 function options(values, selected) {
@@ -801,7 +801,7 @@ function fitChecklistNames(contents) {
 function openDocumentDetails(modal, item, draft, trigger, confirm) {
   modal.innerHTML = `<h2 id="document-dialog-title">${escape(checklistDocumentName(item))}</h2>
     <form class="stack">
-      <details class="compliance-details"${item.state === 'Checked' ? '' : ' open'}>
+      ${item.state === 'Checked' ? '' : `<details class="compliance-details" open>
         <summary>Needing compliance</summary>
         <div class="stack">
           ${complianceReasons.map((reason) => `<label class="compliance-reason">
@@ -809,9 +809,9 @@ function openDocumentDetails(modal, item, draft, trigger, confirm) {
             ${escape(reason)}</label>`).join('')}
           ${remarks('Additional details', 'compliance_details', draft.compliance_details)}
         </div>
-      </details>
+      </details>`}
       ${item.field_definitions.length ? `<div class="grid">${documentFields({ ...item, ...draft })}</div>` : ''}
-      ${remarks('Remarks (optional)', 'remarks', draft.remarks)}
+      ${remarks('Remarks (optional)', 'remarks', draft.remarks, null)}
       <div class="actions"><button type="submit" class="primary">OK</button>
         <button type="button" data-cancel-document>Cancel</button></div>
     </form>`;
@@ -830,8 +830,8 @@ function openDocumentDetails(modal, item, draft, trigger, confirm) {
     const values = new FormData(form);
     if (JSON.stringify([...values]) !== initial) confirm({
       remarks: values.get('remarks').trim() || null,
-      compliance_reasons: values.getAll('compliance_reasons'),
-      compliance_details: values.get('compliance_details').trim() || null,
+      compliance_reasons: item.state === 'Checked' ? draft.compliance_reasons : values.getAll('compliance_reasons'),
+      compliance_details: item.state === 'Checked' ? draft.compliance_details : values.get('compliance_details').trim() || null,
       document_fields: Object.fromEntries(item.field_definitions.map(({ key, kind }) => {
         const value = values.get(key).trim();
         if (value === '') return [key, null];
@@ -1100,7 +1100,32 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
   cacheChecklist();
   checklistForm.addEventListener('input', (event) => {
     const row = event.target.closest('.checklist-row');
-    if (row) syncChecklistRow(row, event.target);
+    if (row) {
+      syncChecklistRow(row, event.target);
+      if (event.target.value === 'Checked' && event.target.checked) {
+        const id = Number(row.querySelector('[data-document]').dataset.document);
+        const details = documentDrafts.get(id);
+        const summary = complianceDescription(details);
+        if (summary) {
+          const actionDate = checklistForm.elements.actual_on.value || today();
+          const savedItem = record.checklist.find((item) => item.id === id);
+          const previousDate = complianceDescription(savedItem) === summary
+            ? record.history.findLast((entry) => entry.kind === 'checklist' && entry.details.changes.some(
+              ({ before, after }) => after?.id === id && complianceDescription(before ?? {}) !== complianceDescription(after),
+            ))?.actual_on ?? 'date unknown'
+            : actionDate;
+          const resolution = `Resolved (${actionDate}) -> Needing compliance (${previousDate}): ${summary}`;
+          const resolved = {
+            ...details,
+            remarks: [details.remarks, resolution].filter(Boolean).join('\n'),
+            compliance_reasons: [],
+            compliance_details: null,
+          };
+          documentDrafts.set(id, resolved);
+          row.querySelector('.document-badges').innerHTML = documentBadges(savedItem, resolved);
+        }
+      }
+    }
     const count = checklistForm.querySelectorAll('.checklist-row[data-state="Unchecked"]').length;
     if (complianceCount.textContent !== String(count)) {
       complianceCount.textContent = String(count);
