@@ -773,7 +773,6 @@ function checklistPanel(items, editable, type, open) {
       <p class="muted form-actions" data-draft-status role="status" hidden></p>
       <div class="notice warning form-actions" data-draft-review hidden></div>
       <div class="notice error form-actions" role="alert" tabindex="-1" hidden></div>
-      <div class="actions form-actions"><button class="primary" type="submit">Save checklist</button></div>
     </form>
     <dialog id="document-dialog" aria-labelledby="document-dialog-title"></dialog>` : rows;
   return `<details id="requirements-checklist" class="panel"${open ? ' open' : ''}>
@@ -935,11 +934,11 @@ function transactionActions(record) {
   if (record.status === 'Suspended') actions.push(['resubmit', 'Record resubmission']);
   if (isAuditRole()) {
     if (record.status === 'Pending') actions.push(['start', 'Start Audit']);
-    if (record.status === 'Under Audit') actions.push(['suspend', 'Suspend'], ['certify', 'Mark Audited']);
+    if (record.status === 'Under Audit') actions.push(['suspend', 'Suspend', 'outline'], ['certify', 'Mark Audited', 'outline']);
     if (record.status === 'Resubmitted') actions.push(['resume', 'Resume Audit']);
-    actions.push(['void', 'Void']);
+    actions.push(['void', 'Void', 'danger']);
   }
-  return actions.map(([value, label]) => `<button class="${value === 'void' ? 'danger' : 'primary'}" data-action="${value}" type="button">${label}</button>`).join('');
+  return actions.map(([value, label, style = 'primary']) => `<button class="${style}" data-action="${value}" type="button">${label}</button>`).join('');
 }
 
 function refreshTransaction(record, checklistDraft) {
@@ -978,7 +977,13 @@ function displayTransaction(record, { checklistOpen = true, checklistDraft, save
       <div><dt>Obligation request reference</dt><dd>${escape(record.obligation_request_reference)}</dd></div>
     </dl>` : ''}
     ${audit && record.voided && record.notes ? `<p class="form-actions">${escape(record.notes)}</p>` : ''}
-    ${actions ? `<div class="actions transaction-actions">${actions}</div>` : ''}
+    ${editable || actions ? `<div class="actions transaction-actions">
+      ${editable ? `<button id="save-checklist" class="primary" type="submit" form="checklist-form">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5 3h12l4 4v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z M7 3v6h10V3 M7 21v-8h10v8"/>
+        </svg>Save</button>` : ''}${actions}
+    </div>` : ''}
   </section>`;
   const checklist = audit ? checklistPanel(checklistItems, editable, record.type, checklistOpen) : '';
   mount(`${backLink(`project/${record.project_id}`, record.project)}
@@ -1002,6 +1007,7 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
   const checklistDisclosure = checklistForm.closest('details');
   const checklistError = checklistForm.querySelector('[role="alert"]');
   const documentDialog = screen.querySelector('#document-dialog');
+  const saveButton = screen.querySelector('#save-checklist');
   const actionButtons = screen.querySelectorAll('[data-action]');
   const complianceCount = screen.querySelector('#compliance-count');
   const draftStatus = checklistForm.querySelector('[data-draft-status]');
@@ -1033,7 +1039,7 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
       return before === after ? [] : [{ before, after }];
     });
     draftReview.hidden = false;
-    draftReview.textContent = 'The shared checklist changed while this draft was open. Review the saved and draft values before using Save checklist.';
+    draftReview.textContent = 'The shared checklist changed while this draft was open. Review the saved and draft values before clicking Save.';
     draftReview.append(latestChecklistLink());
     if (differences.length) {
       draftReview.insertAdjacentHTML('beforeend', changeDetails(differences));
@@ -1068,7 +1074,7 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
     }
     draftStatus.hidden = !hasEdits && !browserStorageFailed;
     const message = browserStorageFailed
-      ? 'The browser could not update this local draft. Use Save checklist to keep these edits.'
+      ? 'The browser could not update this local draft. Click Save to keep these edits.'
       : 'Unsaved checklist edits are stored in this browser.';
     if (draftStatus.textContent !== message) draftStatus.textContent = message;
     if (reviewPending && !reviewRequired) showDraftReview();
@@ -1131,12 +1137,14 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
     saving = true;
     checklistForm.inert = true;
     actionButtons.forEach((button) => { button.disabled = true; });
+    saveButton.disabled = true;
     try {
       return await api(path, 'PATCH', { ...body, revision: record.revision }, signal);
     } finally {
       saving = false;
       checklistForm.inert = false;
       actionButtons.forEach((button) => { button.disabled = false; });
+      saveButton.disabled = false;
       if (currentPage() && document.activeElement === document.body && focused?.isConnected) {
         focused.focus({ preventScroll: true });
       }
@@ -1181,7 +1189,10 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
   async function saveChecklist(automatic) {
     if (saving || !currentPage()) return;
     if (reviewRequired) {
-      if (!automatic) checklistError.focus();
+      if (!automatic) {
+        checklistDisclosure.open = true;
+        checklistError.focus();
+      }
       return;
     }
     checklistError.hidden = true;
@@ -1234,6 +1245,7 @@ function bindTransactionEditor(record, checklistItems, { draft, store, browserSt
     if (autosaveDue) autosaveChecklist();
   });
   checklistAutosaveTimer = setInterval(autosaveChecklist, checklistAutosaveInterval);
+  checklistForm.addEventListener('invalid', () => { checklistDisclosure.open = true; }, true);
   submit(checklistForm, () => saveChecklist(false));
   actionButtons.forEach((button) => button.addEventListener('click', () => {
     if (draft) {

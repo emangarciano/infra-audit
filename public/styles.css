@@ -94,6 +94,7 @@ nav a:focus-visible { outline-offset: -3px; }
   gap: .25rem; margin-top: .375rem; padding-top: .375rem; border-top: 1px solid var(--line);
 }
 .transaction-actions button { min-height: 1.5rem; padding: .125rem .5rem; font-size: .8125rem; }
+#save-checklist { display: inline-flex; align-items: center; gap: .25rem; }
 .form-actions { margin-top: .625rem; }
 .form-actions:empty { display: none; }
 .span-all { grid-column: 1 / -1; }
@@ -112,9 +113,10 @@ button:hover, .button:hover { background: #e9f4ef; }
 button:disabled { cursor: wait; opacity: .65; }
 .primary { color: white; background: var(--accent); border-color: var(--accent); }
 .primary:hover { background: #0c4e44; }
+.transaction-actions .outline { color: var(--accent); border-color: var(--accent); }
 .danger { color: var(--danger); border-color: #bc828a; }
 .danger:hover { background: #faeaed; }
-.transaction-actions [data-action="suspend"] { background: #fbe6d9; color: #823611; border-color: #cc936f; }
+.transaction-actions [data-action="suspend"] { color: #823611; border-color: #cc936f; }
 .transaction-actions [data-action="suspend"]:hover { background: #f7d7c2; }
 .link { background: transparent; border: 0; text-decoration: underline; }
 
